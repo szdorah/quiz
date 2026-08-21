@@ -35,12 +35,15 @@ export async function listQuizzes() { return (await rpc("api_list_quizzes")) || 
 export async function createQuiz({ title, description = "", questions = [] }) {
   const normalized = questions.map(q => {
     const options = Array.isArray(q.options) ? q.options : [];
+    const type = String(q.questionType || "single_select").toLowerCase();
     return {
-      questionType: String(q.questionType || "single_select").toLowerCase(),
+      questionType: type,
       prompt: String(q.questionText || q.prompt || "").trim(),
       imageUrl: q.imageUrl || null,
       options: options.map(o => ({ text: String(o?.text || ""), imageUrl: o?.imageUrl || null })),
-      correctAnswer: options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null),
+      correctAnswer: type === "ordering"
+        ? options.map((_, i) => i)
+        : options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null),
       settings: { timeLimitSeconds: Number(q.timeLimitSeconds || 30), points: Number(q.points || 1000), ...(q.config || {}) },
     };
   });
@@ -65,12 +68,13 @@ export async function getGameState(gameId) {
   return { status: row.status, question: row.question_id ? normalizeQuestion(row) : null };
 }
 
-export async function submitAnswer({ playerId, questionId, selectedIndexes }) {
+export async function submitAnswer({ playerId, questionId, selectedIndexes = null, orderedIndexes = null }) {
   try {
-    const row = first(await rpc("api_submit_answer_v2", {
+    const row = first(await rpc("api_submit_answer_v3", {
       p_player_id: playerId,
       p_question_id: questionId,
       p_selected_indexes: selectedIndexes,
+      p_ordered_indexes: orderedIndexes,
     }));
     return { ok: true, ...row };
   } catch (error) {
@@ -78,7 +82,7 @@ export async function submitAnswer({ playerId, questionId, selectedIndexes }) {
     if (message.includes("already_answered")) return { error: "Erre a kérdésre már válaszoltál." };
     if (message.includes("question_not_active")) return { error: "Ez a kérdés már nem aktív." };
     if (message.includes("game_not_running")) return { error: "A játék jelenleg nem fut." };
-    if (message.includes("answer_required")) return { error: "Válassz legalább egy választ." };
+    if (message.includes("answer_required")) return { error: "Adj meg választ." };
     throw error;
   }
 }
