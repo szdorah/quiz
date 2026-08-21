@@ -7,32 +7,46 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main class="shell">
-    <section class="card form-card wide-form">
+  <main class="shell editor-shell">
+    <section class="card quiz-builder-card">
       <div class="topbar">
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
-        <span class="badge">Új kvíz</span>
+        <span class="badge">Kvízszerkesztő</span>
       </div>
-      <h1 class="page-title">Új kvíz</h1>
-      <p>Első körben egyválaszos kérdéseket készítünk. Az adatmodell már elő van készítve több kérdéstípushoz és képekhez is.</p>
 
-      <label for="title">Kvíz címe</label>
-      <input id="title" maxlength="120" placeholder="pl. Magasépítéstan 2 – 1. előadás" />
+      <div class="builder-intro">
+        <div>
+          <h1 class="page-title">Új kvíz</h1>
+          <p>Állítsd össze a kérdéseket, válaszd ki a típust, az időkeretet és a pontértéket.</p>
+        </div>
+        <div class="builder-actions-top">
+          <a class="btn" href="/admin/dashboard">Mégse</a>
+          <button id="saveQuizTop" class="btn primary" type="button">Kvíz mentése</button>
+        </div>
+      </div>
 
-      <label for="description">Rövid leírás</label>
-      <input id="description" maxlength="240" placeholder="Opcionális leírás" />
+      <div class="quiz-meta-grid">
+        <div>
+          <label for="title">Kvíz címe</label>
+          <input id="title" maxlength="120" placeholder="pl. Magasépítéstan 2 – 1. előadás" />
+        </div>
+        <div>
+          <label for="description">Rövid leírás</label>
+          <input id="description" maxlength="240" placeholder="Opcionális leírás" />
+        </div>
+      </div>
 
-      <div class="section-head">
+      <div class="section-head builder-section-head">
         <div>
           <strong>Kérdések</strong>
-          <span class="small">Most: egy helyes válasz · később: több válasz, igaz/hamis, számérték, párosítás, képes kérdés stb.</span>
+          <span class="small">Egy helyes · több helyes · igaz/hamis</span>
         </div>
-        <button id="addQuestion" class="btn compact" type="button">+ Kérdés</button>
+        <button id="addQuestion" class="btn compact" type="button">+ Új kérdés</button>
       </div>
 
       <div id="questions"></div>
 
-      <div class="actions">
+      <div class="actions builder-footer">
         <button id="saveQuiz" class="btn primary" type="button">Kvíz mentése</button>
         <a class="btn" href="/admin/dashboard">Vissza a kvízekhez</a>
       </div>
@@ -40,107 +54,168 @@
     </section>
   </main>
 
-  <script>
-    const questionsEl = document.getElementById('questions');
-    let questionCounter = 0;
+<script>
+  const questionsEl = document.getElementById('questions');
+  let questionCounter = 0;
 
-    function addQuestion() {
-      const index = questionCounter++;
-      const wrap = document.createElement('section');
-      wrap.className = 'question-editor';
-      wrap.dataset.index = index;
-      wrap.innerHTML = `
-        <div class="question-editor-head">
+  const typeLabels = {
+    SINGLE_SELECT: 'Egy helyes válasz',
+    MULTI_SELECT: 'Több helyes válasz',
+    TRUE_FALSE: 'Igaz / hamis'
+  };
+
+  function answerRows(index, type) {
+    const isMulti = type === 'MULTI_SELECT';
+    const labels = type === 'TRUE_FALSE' ? ['Igaz', 'Hamis'] : ['', '', '', ''];
+    return labels.map((fixedText, optionIndex) => `
+      <label class="answer-editor ${type === 'TRUE_FALSE' ? 'true-false-answer' : ''}">
+        <input class="correct-marker" type="${isMulti ? 'checkbox' : 'radio'}" name="correct-${index}" value="${optionIndex}" ${optionIndex === 0 ? 'checked' : ''} />
+        <span class="answer-letter">${type === 'TRUE_FALSE' ? (optionIndex === 0 ? '✓' : '×') : String.fromCharCode(65 + optionIndex)}</span>
+        <input class="answer-text" maxlength="240" value="${fixedText}" placeholder="${String.fromCharCode(65 + optionIndex)} válasz" ${type === 'TRUE_FALSE' ? 'readonly' : ''} />
+      </label>`).join('');
+  }
+
+  function addQuestion() {
+    const index = questionCounter++;
+    const wrap = document.createElement('section');
+    wrap.className = 'question-editor question-editor-large';
+    wrap.dataset.index = index;
+    wrap.innerHTML = `
+      <div class="question-editor-head">
+        <div>
           <strong class="question-number">${questionsEl.children.length + 1}. kérdés</strong>
-          <button class="btn compact danger remove-question" type="button">Törlés</button>
+          <span class="question-type-label small">${typeLabels.SINGLE_SELECT}</span>
         </div>
-        <label>Kérdés szövege</label>
-        <textarea class="question-text" rows="3" placeholder="Írd be a kérdést…"></textarea>
-        <div class="inline-fields">
-          <div>
-            <label>Időkeret</label>
-            <select class="time-limit">
-              <option value="15">15 mp</option>
-              <option value="20">20 mp</option>
-              <option value="30" selected>30 mp</option>
-              <option value="45">45 mp</option>
-              <option value="60">60 mp</option>
-            </select>
-          </div>
-          <div>
-            <label>Pont</label>
-            <input class="points" type="number" min="0" max="5000" value="1000" />
+        <button class="btn compact danger remove-question" type="button">Törlés</button>
+      </div>
+
+      <div class="question-editor-grid">
+        <div class="question-main-column">
+          <label>Kérdés szövege</label>
+          <textarea class="question-text question-text-large" rows="4" placeholder="Írd be a kérdést…"></textarea>
+
+          <div class="image-dropzone" role="button" tabindex="0">
+            <div class="image-dropzone-icon">🖼️</div>
+            <strong>Kép hozzáadása a kérdéshez</strong>
+            <span class="small">A hely már elő van készítve; a tényleges feltöltést a következő lépésben kötjük be.</span>
           </div>
         </div>
-        <label>Válaszok <span class="small">– jelöld a helyeset</span></label>
-        <div class="option-list">
-          ${['A','B','C','D'].map((letter, optionIndex) => `
-            <label class="answer-editor">
-              <input type="radio" name="correct-${index}" value="${optionIndex}" ${optionIndex === 0 ? 'checked' : ''} />
-              <span class="answer-letter">${letter}</span>
-              <input class="answer-text" maxlength="240" placeholder="${letter} válasz" />
-            </label>`).join('')}
+
+        <aside class="question-settings-panel">
+          <label>Kérdéstípus</label>
+          <select class="question-type">
+            <option value="SINGLE_SELECT">Egy helyes válasz</option>
+            <option value="MULTI_SELECT">Több helyes válasz</option>
+            <option value="TRUE_FALSE">Igaz / hamis</option>
+          </select>
+
+          <label>Időkeret</label>
+          <select class="time-limit">
+            <option value="15">15 mp</option>
+            <option value="20">20 mp</option>
+            <option value="30" selected>30 mp</option>
+            <option value="45">45 mp</option>
+            <option value="60">60 mp</option>
+          </select>
+
+          <label>Pont</label>
+          <input class="points" type="number" min="0" max="5000" value="1000" />
+        </aside>
+      </div>
+
+      <div class="answers-block">
+        <div class="answers-block-head">
+          <label>Válaszok</label>
+          <span class="answer-help small">Jelöld az egyetlen helyes választ.</span>
         </div>
-        <div class="future-note">🖼️ Képfeltöltés és további kérdéstípusok a következő fejlesztési körökben.</div>
-      `;
-      wrap.querySelector('.remove-question').onclick = () => {
-        if (questionsEl.children.length === 1) return;
-        wrap.remove();
-        renumber();
-      };
-      questionsEl.appendChild(wrap);
+        <div class="option-list">${answerRows(index, 'SINGLE_SELECT')}</div>
+      </div>
+    `;
+
+    const typeSelect = wrap.querySelector('.question-type');
+    typeSelect.onchange = () => renderType(wrap, typeSelect.value);
+    wrap.querySelector('.remove-question').onclick = () => {
+      if (questionsEl.children.length === 1) return;
+      wrap.remove();
       renumber();
-    }
-
-    function renumber() {
-      [...questionsEl.children].forEach((el, i) => {
-        el.querySelector('.question-number').textContent = `${i + 1}. kérdés`;
-      });
-    }
-
-    function collectQuestions() {
-      return [...questionsEl.children].map(el => {
-        const correctIndex = Number(el.querySelector('input[type=radio]:checked').value);
-        return {
-          questionText: el.querySelector('.question-text').value.trim(),
-          questionType: 'SINGLE_SELECT',
-          imageUrl: null,
-          timeLimitSeconds: Number(el.querySelector('.time-limit').value),
-          points: Number(el.querySelector('.points').value || 1000),
-          options: [...el.querySelectorAll('.answer-text')].map((input, i) => ({
-            text: input.value.trim(),
-            imageUrl: null,
-            isCorrect: i === correctIndex,
-          }))
-        };
-      });
-    }
-
-    document.getElementById('addQuestion').onclick = addQuestion;
-    document.getElementById('saveQuiz').onclick = async () => {
-      const status = document.getElementById('status');
-      const title = document.getElementById('title').value.trim();
-      const description = document.getElementById('description').value.trim();
-      const questions = collectQuestions();
-
-      if (!title) { status.textContent = 'Adj címet a kvíznek.'; return; }
-      for (const q of questions) {
-        if (!q.questionText) { status.textContent = 'Minden kérdésnek legyen szövege.'; return; }
-        if (q.options.some(o => !o.text)) { status.textContent = 'Töltsd ki mind a négy válaszlehetőséget.'; return; }
-      }
-
-      status.textContent = 'Mentés…';
-      const res = await fetch('/api/quizzes', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({title, description, questions})
-      });
-      const data = await res.json();
-      if (!res.ok) { status.textContent = data.error || 'Nem sikerült menteni.'; return; }
-      location.href = '/admin/dashboard';
     };
+    questionsEl.appendChild(wrap);
+    renumber();
+  }
 
-    addQuestion();
-  </script>
+  function renderType(wrap, type) {
+    wrap.querySelector('.question-type-label').textContent = typeLabels[type];
+    wrap.querySelector('.option-list').innerHTML = answerRows(wrap.dataset.index, type);
+    const help = wrap.querySelector('.answer-help');
+    help.textContent = type === 'MULTI_SELECT'
+      ? 'Jelöld be az összes helyes választ.'
+      : type === 'TRUE_FALSE'
+        ? 'Válaszd ki, hogy az állítás igaz vagy hamis.'
+        : 'Jelöld az egyetlen helyes választ.';
+  }
+
+  function renumber() {
+    [...questionsEl.children].forEach((el, i) => {
+      el.querySelector('.question-number').textContent = `${i + 1}. kérdés`;
+    });
+  }
+
+  function collectQuestions() {
+    return [...questionsEl.children].map(el => {
+      const type = el.querySelector('.question-type').value;
+      const correct = [...el.querySelectorAll('.correct-marker')]
+        .filter(input => input.checked)
+        .map(input => Number(input.value));
+      return {
+        questionText: el.querySelector('.question-text').value.trim(),
+        questionType: type,
+        imageUrl: null,
+        timeLimitSeconds: Number(el.querySelector('.time-limit').value),
+        points: Number(el.querySelector('.points').value || 1000),
+        options: [...el.querySelectorAll('.answer-text')].map((input, i) => ({
+          text: input.value.trim(), imageUrl: null, isCorrect: correct.includes(i)
+        }))
+      };
+    });
+  }
+
+  async function saveQuiz() {
+    const status = document.getElementById('status');
+    const title = document.getElementById('title').value.trim();
+    const description = document.getElementById('description').value.trim();
+    const questions = collectQuestions();
+
+    if (!title) { status.textContent = 'Adj címet a kvíznek.'; return; }
+    for (const [i, q] of questions.entries()) {
+      if (!q.questionText) { status.textContent = `${i + 1}. kérdés: add meg a kérdés szövegét.`; return; }
+      if (q.options.some(o => !o.text)) { status.textContent = `${i + 1}. kérdés: töltsd ki a válaszokat.`; return; }
+      const correctCount = q.options.filter(o => o.isCorrect).length;
+      if (!correctCount) { status.textContent = `${i + 1}. kérdés: jelölj helyes választ.`; return; }
+      if (q.questionType !== 'MULTI_SELECT' && correctCount !== 1) { status.textContent = `${i + 1}. kérdés: pontosan egy helyes válasz szükséges.`; return; }
+      if (q.questionType === 'MULTI_SELECT' && correctCount < 2) { status.textContent = `${i + 1}. kérdés: többválaszos típusnál legalább két helyes választ jelölj.`; return; }
+    }
+
+    document.getElementById('saveQuiz').disabled = true;
+    document.getElementById('saveQuizTop').disabled = true;
+    status.textContent = 'Mentés…';
+    const res = await fetch('/api/quizzes', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title, description, questions})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('saveQuiz').disabled = false;
+      document.getElementById('saveQuizTop').disabled = false;
+      status.textContent = data.error || 'Nem sikerült menteni.';
+      return;
+    }
+    location.href = '/admin/dashboard';
+  }
+
+  document.getElementById('addQuestion').onclick = addQuestion;
+  document.getElementById('saveQuiz').onclick = saveQuiz;
+  document.getElementById('saveQuizTop').onclick = saveQuiz;
+  addQuestion();
+</script>
 </body>
 </html>
