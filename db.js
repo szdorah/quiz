@@ -80,7 +80,7 @@ export async function getGameState(gameId) {
 
 export async function submitAnswer({ playerId, questionId, answer }) {
   try {
-    const row = first(await rpc("api_submit_answer_v4", {
+    const row = first(await rpc("api_submit_answer_v5", {
       p_player_id: playerId,
       p_question_id: questionId,
       p_answer: answer,
