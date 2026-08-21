@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Belépés – SZAGRI Quiz</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="card form-card">
+      <div class="topbar">
+        <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
+        <span class="badge">Hallgató</span>
+      </div>
+      <h1 style="font-size:2.6rem;margin-top:34px">Csatlakozás</h1>
+      <p>Add meg a játékkódot, a nevedet, és válassz egy emojit.</p>
+
+      <label for="code">Játékkód</label>
+      <input id="code" inputmode="numeric" maxlength="6" placeholder="pl. 382741" />
+
+      <label for="name">Név</label>
+      <input id="name" maxlength="40" placeholder="pl. Nagy Anna" />
+
+      <label>Emoji</label>
+      <div id="emojiGrid" class="emoji-grid"></div>
+
+      <div class="actions">
+        <button id="join" class="btn primary" type="button">Belépés a kvízbe</button>
+        <a class="btn" href="/">Vissza</a>
+      </div>
+      <p id="status" class="small"></p>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const emojis = ["🐼","🦊","🐸","🐙","🐧","🦄","🐯","🐨","🦉","🐝","🐬","🦋","🌵","🍀","🚀","⭐"];
+    let selected = emojis[0];
+    const grid = document.getElementById('emojiGrid');
+    emojis.forEach((emoji, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'emoji' + (i === 0 ? ' selected' : '');
+      b.textContent = emoji;
+      b.onclick = () => {
+        selected = emoji;
+        document.querySelectorAll('.emoji').forEach(x => x.classList.remove('selected'));
+        b.classList.add('selected');
+      };
+      grid.appendChild(b);
+    });
+    const socket = io();
+    socket.on('hello', () => document.getElementById('status').textContent = 'Kapcsolat a szerverrel rendben.');
+    document.getElementById('join').onclick = () => {
+      document.getElementById('status').textContent = 'A tényleges kvízcsatlakozást a következő lépésben kötjük be.';
+    };
+  </script>
+</body>
+</html>
