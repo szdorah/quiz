@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Oktatói felület – SZAGRI Quiz</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="card dashboard-card">
+      <div class="topbar">
+        <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
+        <button id="logout" class="btn compact" type="button">Kilépés</button>
+      </div>
+      <div class="dashboard-head">
+        <div>
+          <span class="badge">Oktatói felület</span>
+          <h1 class="page-title">Kvízeim</h1>
+          <p>Innen készíthetsz új kvízt, később pedig innen indíthatod és töltheted le az eredményeket.</p>
+        </div>
+        <a class="btn primary" href="/admin/quiz/new">+ Új kvíz</a>
+      </div>
+      <div class="empty-state">
+        <div class="empty-icon">✦</div>
+        <strong>Még nincs mentett kvíz</strong>
+        <span class="small">Készítsük el az elsőt.</span>
+      </div>
+    </section>
+  </main>
+  <script>
+    document.getElementById('logout').onclick = async () => {
+      await fetch('/api/admin/logout', {method:'POST'});
+      location.href = '/admin';
+    };
+  </script>
+</body>
+</html>
