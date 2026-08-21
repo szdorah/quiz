@@ -1,121 +1,20 @@
-<!doctype html>
-<html lang="hu">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Kvíz – SZAGRI Quiz</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-<main class="shell">
-  <section class="card game-card">
-    <div class="topbar"><div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div><span id="timer" class="badge">30 mp</span></div>
-    <div id="questionView">
-      <div id="questionMeta" class="small" style="margin-top:24px"></div>
-      <div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage" alt="Kérdés képe" /></div>
-      <h1 id="prompt" class="game-question">Kérdés betöltése…</h1>
-      <div id="typeHint" class="question-type-hint hidden"></div>
-      <div id="answers" class="game-answers"></div>
-      <div id="submitWrap" class="actions hidden"><button id="submitAnswer" class="btn primary" type="button">Válasz beküldése</button></div>
-      <p id="status" class="small"></p>
-    </div>
-    <div id="resultView" class="hidden center-card"><div id="resultIcon" class="waiting-avatar">✓</div><h2 id="resultTitle">Válasz elküldve</h2><p id="resultText"></p><div class="waiting-pill">Várakozás a következő kérdésre…</div></div>
-    <div id="leaderboardView" class="hidden"><div class="center-card"><div class="waiting-avatar">🏆</div><h1 class="page-title">Végeredmény</h1><p>Szép munka!</p></div><div id="leaderboard" class="quiz-list"></div></div>
-  </section>
-</main>
-<script src="/socket.io/socket.io.js"></script>
-<script>
-const playerRaw=sessionStorage.getItem('szagri_player'),sessionRaw=sessionStorage.getItem('szagri_session'),questionRaw=sessionStorage.getItem('szagri_question');
-if(!playerRaw||!sessionRaw||!questionRaw)location.href='/play';
-const player=JSON.parse(playerRaw),session=JSON.parse(sessionRaw),socket=io();
-let currentQuestion=null,selectedIndexes=[],categoryAssignments=[],imagePoint=null,submitted=false,timerHandle=null,selectedCategoryItem=null;
-
-socket.on('connect',()=>socket.emit('session:join',session.id));
-socket.on('game:question',q=>{sessionStorage.setItem('szagri_question',JSON.stringify(q));showQuestion(q);});
-socket.on('game:finished',board=>showLeaderboard(board));
-const qType=q=>String(q?.questionType||'').toLowerCase();
-const isMulti=q=>qType(q)==='multi_select',isTF=q=>qType(q)==='true_false',isOrdering=q=>qType(q)==='ordering',isCategory=q=>qType(q)==='categorization',isImageClick=q=>qType(q)==='image_click';
-
-function shuffled(items){const c=[...items];for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[c[i],c[j]]=[c[j],c[i]];}if(c.length>1&&c.every((x,i)=>x.originalIndex===i))[c[0],c[1]]=[c[1],c[0]];return c;}
-
-function showQuestion(q){
-  currentQuestion=q;selectedIndexes=[];categoryAssignments=Array((q.options||[]).length).fill(-1);imagePoint=null;selectedCategoryItem=null;submitted=false;
-  document.getElementById('questionView').classList.remove('hidden');document.getElementById('resultView').classList.add('hidden');document.getElementById('leaderboardView').classList.add('hidden');
-  document.getElementById('submitWrap').classList.add('hidden');document.getElementById('submitAnswer').disabled=false;document.getElementById('answers').classList.remove('answer-locked');
-  document.getElementById('prompt').textContent=q.prompt||'Kérdés';document.getElementById('questionMeta').textContent=q.questionNumber&&q.questionTotal?`${q.questionNumber}. / ${q.questionTotal}. kérdés`:'';
-  const hint=document.getElementById('typeHint');
-  if(isMulti(q))hint.textContent='☑ Több helyes válasz – részpont is szerezhető';
-  else if(isTF(q))hint.textContent='Igaz / hamis';
-  else if(isOrdering(q))hint.textContent='↕ Húzd sorba az elemeket, vagy használd a ↑ ↓ nyilakat';
-  else if(isCategory(q))hint.textContent='↔ Húzd az elemeket a megfelelő kategóriába – mobilon koppintással is működik';
-  else if(isImageClick(q))hint.textContent='🎯 Koppints a képen a helyes pontra';
-  else hint.textContent=''; hint.classList.toggle('hidden',!hint.textContent);
-
-  const imageWrap=document.getElementById('questionImageWrap');
-  if(q.imageUrl&&!isImageClick(q)){document.getElementById('questionImage').src=q.imageUrl;imageWrap.classList.remove('hidden');}else imageWrap.classList.add('hidden');
-  const answers=document.getElementById('answers');answers.innerHTML='';
-
-  if(isOrdering(q)) renderOrdering(q,answers);
-  else if(isCategory(q)) renderCategories(q,answers);
-  else if(isImageClick(q)) renderImageClick(q,answers);
-  else renderChoices(q,answers);
-  startTimer(Number(q.settings?.timeLimitSeconds||30));
-}
-
-function renderChoices(q,answers){
-  answers.className='game-answers';
-  const items=shuffled((q.options||[]).map((option,originalIndex)=>({option,originalIndex})));
-  items.forEach(({option,originalIndex},displayIndex)=>{
-    const b=document.createElement('button');b.type='button';b.className='answer-choice';
-    const text=typeof option==='string'?option:option.text||'';
-    const badge=isTF(q)?(originalIndex===0?'✓':'×'):String.fromCharCode(65+displayIndex);
-    b.innerHTML=`<span>${badge}</span><strong></strong>`;b.querySelector('strong').textContent=text;
-    b.onclick=()=>selectAnswer(originalIndex,b);answers.appendChild(b);
-  });
-  document.getElementById('status').textContent=isMulti(q)?'Jelöld be, amelyeket helyesnek gondolsz. A részben helyes megoldásért részpont jár.':'Válassz egy választ.';
-}
-function selectAnswer(i,b){if(submitted)return;if(isMulti(currentQuestion)){if(selectedIndexes.includes(i)){selectedIndexes=selectedIndexes.filter(x=>x!==i);b.classList.remove('selected');}else{selectedIndexes.push(i);b.classList.add('selected');}}else{selectedIndexes=[i];document.querySelectorAll('.answer-choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');}document.getElementById('submitWrap').classList.toggle('hidden',!selectedIndexes.length);}
-
-function renderOrdering(q,answers){answers.className='ordering-list';const items=shuffled((q.options||[]).map((option,originalIndex)=>({option,originalIndex})));items.forEach(({option,originalIndex})=>{const row=document.createElement('div');row.className='ordering-item sortable-item';row.dataset.index=originalIndex;const text=typeof option==='string'?option:option.text||'';row.innerHTML='<span class="ordering-position"></span><strong></strong><div class="order-controls"><button type="button" class="mini-btn order-up">↑</button><button type="button" class="mini-btn order-down">↓</button><span class="drag-handle" aria-label="Húzás">☰</span></div>';row.querySelector('strong').textContent=text;answers.appendChild(row);});renumberOrdering(answers);enablePointerSort(answers);bindGameOrderButtons(answers);document.getElementById('submitWrap').classList.remove('hidden');document.getElementById('status').textContent='Állítsd be a helyes sorrendet, majd küldd be.';}
-function bindGameOrderButtons(list){list.querySelectorAll('.order-up').forEach(b=>b.onclick=()=>moveOrder(b.closest('.ordering-item'),-1));list.querySelectorAll('.order-down').forEach(b=>b.onclick=()=>moveOrder(b.closest('.ordering-item'),1));}
-function moveOrder(row,d){if(submitted)return;const list=row.parentElement,rows=[...list.children],i=rows.indexOf(row),j=i+d;if(j<0||j>=rows.length)return;if(d<0)list.insertBefore(row,rows[j]);else list.insertBefore(rows[j],row);renumberOrdering(list);}
-function enablePointerSort(container){let dragged=null,pid=null;container.onpointerdown=e=>{if(submitted)return;const h=e.target.closest('.drag-handle');if(!h)return;dragged=h.closest('.sortable-item');pid=e.pointerId;h.setPointerCapture?.(pid);dragged.classList.add('dragging');e.preventDefault();};container.onpointermove=e=>{if(!dragged||e.pointerId!==pid||submitted)return;const t=document.elementFromPoint(e.clientX,e.clientY)?.closest('.sortable-item');if(!t||t===dragged||t.parentElement!==container)return;const r=t.getBoundingClientRect();container.insertBefore(dragged,e.clientY<r.top+r.height/2?t:t.nextSibling);renumberOrdering(container);};const stop=()=>{if(!dragged)return;dragged.classList.remove('dragging');dragged=null;pid=null;};container.onpointerup=stop;container.onpointercancel=stop;}
-function renumberOrdering(c){[...c.querySelectorAll('.ordering-item')].forEach((r,i)=>r.querySelector('.ordering-position').textContent=i+1);}
-
-function renderCategories(q,answers){
-  answers.className='category-game';const cats=Array.isArray(q.settings?.categories)?q.settings.categories:[];
-  const pool=document.createElement('div');pool.className='category-pool';pool.innerHTML='<strong>Elemek</strong><div class="category-pool-items"></div>';answers.appendChild(pool);
-  const columns=document.createElement('div');columns.className='category-columns';answers.appendChild(columns);
-  cats.forEach((name,ci)=>{const z=document.createElement('div');z.className='category-zone';z.dataset.category=ci;z.innerHTML='<strong></strong><div class="category-zone-items"></div>';z.querySelector('strong').textContent=name;z.onclick=e=>{if(e.target.closest('.category-item'))return;if(selectedCategoryItem)assignCategoryItem(selectedCategoryItem,ci);};z.ondragover=e=>{e.preventDefault();z.classList.add('drag-over');};z.ondragleave=()=>z.classList.remove('drag-over');z.ondrop=e=>{e.preventDefault();z.classList.remove('drag-over');const i=Number(e.dataTransfer.getData('text/plain'));const item=answers.querySelector(`.category-item[data-index="${i}"]`);if(item)assignCategoryItem(item,ci);};columns.appendChild(z);});
-  shuffled((q.options||[]).map((option,originalIndex)=>({option,originalIndex}))).forEach(({option,originalIndex})=>{const b=document.createElement('button');b.type='button';b.draggable=true;b.className='category-item';b.dataset.index=originalIndex;b.textContent=typeof option==='string'?option:option.text||'';b.onclick=e=>{e.stopPropagation();selectCategoryItem(b);};b.ondragstart=e=>{e.dataTransfer.setData('text/plain',String(originalIndex));};pool.querySelector('.category-pool-items').appendChild(b);});
-  document.getElementById('status').textContent='Húzd az elemeket a kategóriákba. Mobilon: elem → kategória.';
-}
-function selectCategoryItem(item){if(submitted)return;document.querySelectorAll('.category-item').forEach(x=>x.classList.remove('selected'));if(selectedCategoryItem===item){selectedCategoryItem=null;return;}selectedCategoryItem=item;item.classList.add('selected');}
-function assignCategoryItem(item,cat){if(submitted)return;const zone=document.querySelector(`.category-zone[data-category="${cat}"] .category-zone-items`);if(!zone)return;zone.appendChild(item);categoryAssignments[Number(item.dataset.index)]=cat;item.classList.remove('selected');selectedCategoryItem=null;document.getElementById('submitWrap').classList.toggle('hidden',categoryAssignments.some(x=>x<0));}
-
-function renderImageClick(q,answers){answers.className='image-click-stage';const wrap=document.createElement('div');wrap.className='click-image-wrap';wrap.innerHTML='<img class="click-image" alt="Kattintható kérdéskép"/><span class="student-click-marker hidden"></span>';wrap.querySelector('img').src=q.imageUrl||'';wrap.onclick=e=>{if(submitted)return;const img=wrap.querySelector('img'),r=img.getBoundingClientRect();const x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;if(x<0||x>1||y<0||y>1)return;imagePoint={x:+x.toFixed(4),y:+y.toFixed(4)};const m=wrap.querySelector('.student-click-marker');m.style.left=`${x*100}%`;m.style.top=`${y*100}%`;m.classList.remove('hidden');document.getElementById('submitWrap').classList.remove('hidden');};answers.appendChild(wrap);document.getElementById('status').textContent='Koppints arra a pontra, amely szerinted helyes.';}
-
-document.getElementById('submitAnswer').onclick=submitAnswer;
-async function submitAnswer(){
-  if(submitted)return;let answer=null;
-  if(isOrdering(currentQuestion)){const orderedIndexes=[...document.querySelectorAll('.ordering-item')].map(r=>+r.dataset.index);if(!orderedIndexes.length)return;answer={orderedIndexes};}
-  else if(isCategory(currentQuestion)){if(categoryAssignments.some(x=>x<0))return;answer={assignments:categoryAssignments};}
-  else if(isImageClick(currentQuestion)){if(!imagePoint)return;answer={point:imagePoint};}
-  else{if(!selectedIndexes.length)return;answer={selectedIndexes};}
-  submitted=true;clearInterval(timerHandle);lockQuestion();document.getElementById('submitAnswer').disabled=true;document.getElementById('status').textContent='Beküldés…';
-  const res=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:player.id,sessionId:session.id,questionId:currentQuestion.id,answer})});const data=await res.json();
-  if(!res.ok){submitted=false;unlockQuestion();document.getElementById('submitAnswer').disabled=false;document.getElementById('status').textContent=data.error||'Nem sikerült beküldeni.';return;}
-  const r=data.result;const awarded=Number(r.points_awarded||0);player.score=Number(r.total_score||player.score||0);sessionStorage.setItem('szagri_player',JSON.stringify(player));document.getElementById('questionView').classList.add('hidden');document.getElementById('resultView').classList.remove('hidden');
-  document.getElementById('resultIcon').textContent=r.is_correct?'✓':awarded>0?'◐':'×';
-  document.getElementById('resultTitle').textContent=r.is_correct?'Helyes válasz!':awarded>0?'Részben helyes':'Válasz elküldve';
-  document.getElementById('resultText').textContent=awarded>0?`+${awarded} pont · Összesen ${r.total_score} pont`:`Most 0 pont · Összesen ${r.total_score} pont`;
-}
-function lockQuestion(){document.querySelectorAll('.answer-choice,.mini-btn,.category-item').forEach(x=>x.disabled=true);document.getElementById('answers').classList.add('answer-locked');}
-function unlockQuestion(){document.querySelectorAll('.answer-choice,.mini-btn,.category-item').forEach(x=>x.disabled=false);document.getElementById('answers').classList.remove('answer-locked');}
-function startTimer(seconds){clearInterval(timerHandle);let left=seconds;const timer=document.getElementById('timer');timer.textContent=`${left} mp`;timerHandle=setInterval(()=>{left--;timer.textContent=`${Math.max(left,0)} mp`;if(left<=0){clearInterval(timerHandle);if(!submitted){submitted=true;lockQuestion();document.getElementById('submitWrap').classList.add('hidden');document.getElementById('status').textContent='Lejárt az idő. Várakozás a következő kérdésre…';}}},1000);}
-function showLeaderboard(board){clearInterval(timerHandle);document.getElementById('questionView').classList.add('hidden');document.getElementById('resultView').classList.add('hidden');document.getElementById('leaderboardView').classList.remove('hidden');const medals=['🥇','🥈','🥉'];document.getElementById('leaderboard').innerHTML=(board||[]).map((p,i)=>`<article class="quiz-row"><div><strong>${medals[i]||(i+1)+'.'} ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</strong></div><strong>${p.score} pont</strong></article>`).join('');}
-function escapeHtml(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-showQuestion(JSON.parse(questionRaw));
-</script>
-</body>
-</html>
+<!doctype html><html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kvíz – SZAGRI Quiz</title><link rel="stylesheet" href="/styles.css"></head><body><main class="shell"><section class="card game-card"><div class="topbar"><div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div><span id="timer" class="badge">30 mp</span></div><div id="questionView"><div id="questionMeta" class="small" style="margin-top:20px"></div><div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage"></div><h1 id="prompt" class="game-question">Kérdés betöltése…</h1><div id="typeHint" class="question-type-hint hidden"></div><div id="answers" class="game-answers"></div><div id="submitWrap" class="actions hidden"><button id="submitAnswer" class="btn primary">Válasz beküldése</button></div><p id="status" class="small"></p></div><div id="resultView" class="hidden center-card"><div id="resultIcon" class="waiting-avatar">✓</div><h2 id="resultTitle"></h2><p id="resultText"></p><div id="explanation" class="explanation-box hidden"></div><div class="waiting-pill">Várakozás a következő kérdésre…</div></div><div id="leaderboardView" class="hidden"><div class="center-card"><div class="waiting-avatar">🏆</div><h1 class="page-title">Végeredmény</h1></div><div id="leaderboard" class="quiz-list"></div></div></section></main><script src="/socket.io/socket.io.js"></script><script>
+const playerRaw=sessionStorage.getItem('szagri_player'),sessionRaw=sessionStorage.getItem('szagri_session'),questionRaw=sessionStorage.getItem('szagri_question');if(!playerRaw||!sessionRaw||!questionRaw)location.href='/play';const player=JSON.parse(playerRaw),session=JSON.parse(sessionRaw),socket=io();let q=null,selected=[],assignments=[],point=null,submitted=false,timerHandle=null,selectedCat=null;
+const $=s=>document.querySelector(s),type=()=>String(q?.questionType||'').toLowerCase(),multi=()=>type()==='multi_select',ordering=()=>type()==='ordering',category=()=>type()==='categorization',imageClick=()=>type()==='image_click',tf=()=>type()==='true_false';
+function shuffle(a){const c=[...a];for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[c[i],c[j]]=[c[j],c[i]];}return c;}
+socket.on('connect',()=>socket.emit('session:join',session.id));socket.on('game:question',x=>{sessionStorage.setItem('szagri_question',JSON.stringify(x));show(x)});socket.on('game:finished',board=>showBoard(board));
+function show(x){q=x;selected=[];assignments=Array((q.options||[]).length).fill(-1);point=null;selectedCat=null;submitted=false;$('#questionView').classList.remove('hidden');$('#resultView').classList.add('hidden');$('#leaderboardView').classList.add('hidden');$('#submitWrap').classList.add('hidden');$('#submitAnswer').disabled=false;$('#answers').classList.remove('answer-locked');$('#prompt').textContent=q.prompt||'Kérdés';$('#questionMeta').textContent=q.questionNumber&&q.questionTotal?`${q.questionNumber}. / ${q.questionTotal}. kérdés`:'';const hint=$('#typeHint');hint.textContent=multi()?'☑ Több helyes válasz – részpont is jár':ordering()?'↕ Állítsd helyes sorrendbe':category()?'↔ Rendezd kategóriákba':imageClick()?'🎯 Koppints a helyes területre':tf()?'Igaz / hamis':'';hint.classList.toggle('hidden',!hint.textContent);const iw=$('#questionImageWrap');if(q.imageUrl&&!imageClick()){$('#questionImage').src=q.imageUrl;iw.classList.remove('hidden')}else iw.classList.add('hidden');const a=$('#answers');a.innerHTML='';if(ordering())renderOrder(a);else if(category())renderCategory(a);else if(imageClick())renderImage(a);else renderChoices(a);startTimer(Number(q.settings?.timeLimitSeconds||30));}
+function renderChoices(a){a.className='game-answers';shuffle((q.options||[]).map((o,i)=>({o,i}))).forEach(({o,i},pos)=>{const b=document.createElement('button');b.className='answer-choice';b.type='button';b.dataset.index=i;const text=typeof o==='string'?o:o.text||'';b.innerHTML=`<span>${tf()?(text.toLowerCase().includes('hamis')?'×':'✓'):String.fromCharCode(65+pos)}</span><strong></strong>`;b.querySelector('strong').textContent=text;b.onclick=()=>choose(i,b);a.appendChild(b)});$('#status').textContent=multi()?'Több válasz is helyes lehet.':'Válassz egy választ.'}
+function choose(i,b){if(submitted)return;if(multi()){if(selected.includes(i)){selected=selected.filter(x=>x!==i);b.classList.remove('selected')}else{selected.push(i);b.classList.add('selected')}}else{selected=[i];document.querySelectorAll('.answer-choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected')}$('#submitWrap').classList.toggle('hidden',!selected.length)}
+function renderOrder(a){a.className='ordering-list';shuffle((q.options||[]).map((o,i)=>({o,i}))).forEach(({o,i})=>{const r=document.createElement('div');r.className='ordering-item sortable-item';r.dataset.index=i;r.innerHTML='<span class="drag-handle">☰</span><span class="ordering-position"></span><strong></strong><div class="order-controls"><button class="mini-btn up">↑</button><button class="mini-btn down">↓</button></div>';r.querySelector('strong').textContent=typeof o==='string'?o:o.text||'';r.querySelector('.up').onclick=()=>move(r,-1);r.querySelector('.down').onclick=()=>move(r,1);a.appendChild(r)});renumber(a);bindSort(a);$('#submitWrap').classList.remove('hidden');$('#status').textContent='Húzd az elemeket, vagy használd a nyilakat.'}
+function move(r,d){if(submitted)return;const a=[...r.parentElement.children],i=a.indexOf(r),j=i+d;if(j<0||j>=a.length)return;if(d<0)r.parentElement.insertBefore(r,a[j]);else r.parentElement.insertBefore(a[j],r);renumber(r.parentElement)}function renumber(a){[...a.children].forEach((x,i)=>x.querySelector('.ordering-position').textContent=i+1)}
+function bindSort(a){let drag=null,pid=null;a.onpointerdown=e=>{const h=e.target.closest('.drag-handle');if(!h||submitted)return;drag=h.closest('.ordering-item');pid=e.pointerId;h.setPointerCapture?.(pid);drag.classList.add('dragging');e.preventDefault()};a.onpointermove=e=>{if(!drag||e.pointerId!==pid)return;const t=document.elementFromPoint(e.clientX,e.clientY)?.closest('.ordering-item');if(!t||t===drag||t.parentElement!==a)return;const r=t.getBoundingClientRect();a.insertBefore(drag,e.clientY<r.top+r.height/2?t:t.nextSibling);renumber(a)};a.onpointerup=a.onpointercancel=()=>{drag?.classList.remove('dragging');drag=null;pid=null}}
+function renderCategory(a){a.className='category-game';const cats=q.settings?.categories||[];const pool=document.createElement('div');pool.className='category-pool';pool.innerHTML='<strong>Elemek</strong><div class="category-pool-items"></div>';a.appendChild(pool);const cols=document.createElement('div');cols.className='category-columns';a.appendChild(cols);cats.forEach((name,ci)=>{const z=document.createElement('div');z.className='category-zone';z.dataset.category=ci;z.innerHTML='<strong></strong><div class="category-zone-items"></div>';z.querySelector('strong').textContent=name;z.onclick=e=>{if(e.target.closest('.category-item')||!selectedCat)return;assign(selectedCat,ci)};z.ondragover=e=>e.preventDefault();z.ondrop=e=>{e.preventDefault();const i=+e.dataTransfer.getData('text/plain');const item=a.querySelector(`.category-item[data-index="${i}"]`);if(item)assign(item,ci)};cols.appendChild(z)});shuffle((q.options||[]).map((o,i)=>({o,i}))).forEach(({o,i})=>{const b=document.createElement('button');b.className='category-item';b.type='button';b.draggable=true;b.dataset.index=i;b.textContent=typeof o==='string'?o:o.text||'';b.onclick=e=>{e.stopPropagation();document.querySelectorAll('.category-item').forEach(x=>x.classList.remove('selected'));selectedCat=selectedCat===b?null:b;if(selectedCat)b.classList.add('selected')};b.ondragstart=e=>e.dataTransfer.setData('text/plain',String(i));pool.querySelector('.category-pool-items').appendChild(b)});$('#status').textContent='Húzd a kategóriába; mobilon koppints az elemre, majd a kategóriára.'}
+function assign(item,ci){item.classList.remove('selected');a=$('#answers');a.querySelector(`.category-zone[data-category="${ci}"] .category-zone-items`).appendChild(item);assignments[+item.dataset.index]=ci;selectedCat=null;$('#submitWrap').classList.toggle('hidden',assignments.some(x=>x<0))}
+function renderImage(a){a.className='image-click-stage';const w=document.createElement('div');w.className='click-image-wrap';w.innerHTML='<img class="click-image"><span class="student-click-marker hidden"></span>';w.querySelector('img').src=q.imageUrl||'';w.onclick=e=>{if(submitted)return;const img=w.querySelector('img'),r=img.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;if(x<0||x>1||y<0||y>1)return;point={x:+x.toFixed(4),y:+y.toFixed(4)};const m=w.querySelector('span');m.style.left=`${x*100}%`;m.style.top=`${y*100}%`;m.classList.remove('hidden');$('#submitWrap').classList.remove('hidden')};a.appendChild(w);$('#status').textContent='Koppints a képen a megfelelő területre.'}
+$('#submitAnswer').onclick=submit;async function submit(){if(submitted)return;let answer;if(ordering())answer={orderedIndexes:[...document.querySelectorAll('.ordering-item')].map(x=>+x.dataset.index)};else if(category()){if(assignments.some(x=>x<0))return;answer={assignments}};if(imageClick()){if(!point)return;answer={point}};if(!ordering()&&!category()&&!imageClick()){if(!selected.length)return;answer={selectedIndexes:selected}}submitted=true;clearInterval(timerHandle);lock();const r=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:player.id,sessionId:session.id,questionId:q.id,answer})}),d=await r.json();if(!r.ok){submitted=false;unlock();$('#status').textContent=d.error||'Hiba';return}const x=d.result,partial=!x.is_correct&&Number(x.points_awarded)>0;player.score=Number(x.total_score||0);sessionStorage.setItem('szagri_player',JSON.stringify(player));$('#questionView').classList.add('hidden');$('#resultView').classList.remove('hidden');$('#resultIcon').textContent=x.is_correct?'✓':partial?'½':'×';$('#resultTitle').textContent=x.is_correct?'Helyes válasz!':partial?'Részben helyes':'Válasz elküldve';$('#resultText').textContent=`+${x.points_awarded} pont · Összesen ${x.total_score} pont`;$('#explanation').textContent=x.explanation||'';$('#explanation').classList.toggle('hidden',!x.explanation)}
+function lock(){document.querySelectorAll('button').forEach(x=>{if(x.closest('#questionView'))x.disabled=true});$('#answers').classList.add('answer-locked')}function unlock(){document.querySelectorAll('#questionView button').forEach(x=>x.disabled=false);$('#answers').classList.remove('answer-locked');$('#submitAnswer').disabled=false}
+function startTimer(sec){clearInterval(timerHandle);let left=sec;$('#timer').textContent=`${left} mp`;timerHandle=setInterval(()=>{left--;$('#timer').textContent=`${Math.max(left,0)} mp`;if(left<=0){clearInterval(timerHandle);if(!submitted){submitted=true;lock();$('#submitWrap').classList.add('hidden');$('#status').textContent='Lejárt az idő. Várakozás…'}}},1000)}
+function showBoard(board){clearInterval(timerHandle);$('#questionView').classList.add('hidden');$('#resultView').classList.add('hidden');$('#leaderboardView').classList.remove('hidden');const medals=['🥇','🥈','🥉'];$('#leaderboard').innerHTML=(board||[]).map((p,i)=>`<article class="quiz-row"><strong>${medals[i]||(i+1)+'.'} ${p.emoji} ${p.name}</strong><strong>${p.score} pont</strong></article>`).join('')}
+show(JSON.parse(questionRaw));
+</script></body></html>

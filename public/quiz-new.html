@@ -1,191 +1,26 @@
-<!doctype html>
-<html lang="hu">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Új kvíz – SZAGRI Quiz</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-<main class="shell editor-shell">
-  <section class="card quiz-builder-card">
-    <div class="topbar"><div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div><span class="badge">Kvízszerkesztő</span></div>
-    <div class="builder-intro">
-      <div><h1 class="page-title">Új kvíz</h1><p>Állítsd össze a kérdéseket, válaszd ki a típust, az időkeretet és a pontértéket.</p></div>
-      <div class="builder-actions-top"><a class="btn" href="/admin/dashboard">Mégse</a><button id="saveQuizTop" class="btn primary" type="button">Kvíz mentése</button></div>
-    </div>
-    <div class="quiz-meta-grid">
-      <div><label for="title">Kvíz címe</label><input id="title" maxlength="120" placeholder="pl. Magasépítéstan 2 – 1. előadás" /></div>
-      <div><label for="description">Rövid leírás</label><input id="description" maxlength="240" placeholder="Opcionális leírás" /></div>
-    </div>
-    <div class="section-head builder-section-head">
-      <div><strong>Kérdések</strong><span class="small">Választás · igaz/hamis · sorrend · kategorizálás · képre kattintás</span></div>
-      <button id="addQuestion" class="btn compact" type="button">+ Új kérdés</button>
-    </div>
-    <div id="questions"></div>
-    <div class="actions builder-footer"><button id="saveQuiz" class="btn primary" type="button">Kvíz mentése</button><a class="btn" href="/admin/dashboard">Vissza a kvízekhez</a></div>
-    <p id="status" class="small"></p>
-  </section>
-</main>
+<!doctype html><html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kvízszerkesztő – SZAGRI Quiz</title><link rel="stylesheet" href="/styles.css"></head><body>
+<main class="shell editor-shell"><section class="card quiz-builder-card"><div class="topbar"><div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div><span class="badge">Kvízszerkesztő</span></div><div class="builder-intro"><div><h1 id="pageTitle" class="page-title">Új kvíz</h1><p>Kérdések létrehozása, másolása, átrendezése és polygonos képkérdések.</p></div><div class="builder-actions-top"><button id="importBtn" class="btn">Import JSON</button><button id="exportBtn" class="btn">Export JSON</button><a class="btn" href="/admin/dashboard">Mégse</a><button id="saveTop" class="btn primary">Mentés</button></div></div><input id="importFile" type="file" accept="application/json" hidden><div class="quiz-meta-grid"><div><label>Kvíz címe</label><input id="title" maxlength="120"></div><div><label>Rövid leírás</label><input id="description" maxlength="240"></div></div><div class="section-head builder-section-head"><div><strong>Kérdések</strong><span class="small">A ☰ jellel húzhatók sorrendbe.</span></div><button id="addQuestion" class="btn compact">+ Új kérdés</button></div><div id="questions"></div><div class="actions builder-footer"><button id="saveBottom" class="btn primary">Mentés</button><a class="btn" href="/admin/dashboard">Vissza</a></div><p id="status" class="small"></p></section></main>
 <script>
-const questionsEl = document.getElementById('questions');
-let questionCounter = 0;
-const typeLabels = {
-  SINGLE_SELECT:'Egy helyes válasz', MULTI_SELECT:'Több helyes válasz', TRUE_FALSE:'Igaz / hamis',
-  ORDERING:'Sorrendbe rendezés', CATEGORIZATION:'Kategóriákba rendezés', IMAGE_CLICK:'Képre kattintás'
-};
-
-function optionRow(index, optionIndex, type, text='') {
-  const isMulti = type === 'MULTI_SELECT';
-  const tf = type === 'TRUE_FALSE';
-  const ordering = type === 'ORDERING';
-  return `<div class="answer-editor ${tf?'true-false-answer':''} ${ordering?'sortable-item ordering-editor-item':''}">
-    ${ordering ? `<span class="drag-handle" title="Húzd">☰</span>` : `<input class="correct-marker" type="${isMulti?'checkbox':'radio'}" name="correct-${index}" value="${optionIndex}" ${optionIndex===0?'checked':''} />`}
-    <span class="answer-letter">${tf ? (optionIndex===0?'✓':'×') : ordering ? optionIndex+1 : String.fromCharCode(65+optionIndex)}</span>
-    <input class="answer-text" maxlength="240" value="${text}" placeholder="Válasz / elem" ${tf?'readonly':''} />
-    ${ordering ? `<div class="order-controls"><button class="mini-btn move-up" type="button" title="Feljebb">↑</button><button class="mini-btn move-down" type="button" title="Lejjebb">↓</button><button class="mini-btn remove-order" type="button" title="Törlés">×</button></div>` : ''}
-  </div>`;
-}
-
-function answerRows(index, type, count=4) {
-  if (type === 'TRUE_FALSE') return optionRow(index,0,type,'Igaz') + optionRow(index,1,type,'Hamis');
-  return Array.from({length:count},(_,i)=>optionRow(index,i,type,'')).join('');
-}
-
-function imageEditorHtml(index) {
-  return `<div class="image-dropzone" data-image-zone>
-    <input class="question-image-input" type="file" accept="image/*" hidden />
-    <div class="image-placeholder"><div class="image-dropzone-icon">🖼️</div><strong>Kép hozzáadása</strong><span class="small">Kattints ide vagy húzz be egy képet.</span></div>
-    <div class="image-preview-wrap hidden"><img class="image-preview" alt="Kérdés képe"/><span class="target-marker hidden"></span></div>
-    <div class="image-actions hidden"><button class="btn compact replace-image" type="button">Kép cseréje</button><button class="btn compact remove-image" type="button">Kép törlése</button></div>
-  </div>`;
-}
-
-function categoryEditorHtml() {
-  return `<div class="category-editor">
-    <div class="category-settings"><strong>Kategóriák</strong><div class="category-name-list">
-      ${['1. kategória','2. kategória','3. kategória'].map((x,i)=>`<div class="category-name-row"><input class="category-name" value="${x}" maxlength="80"/><button class="mini-btn remove-category" type="button">×</button></div>`).join('')}
-    </div><button class="btn compact add-category" type="button">+ Kategória</button></div>
-    <div><div class="answers-block-head"><strong>Állítások / elemek</strong><span class="small">Minden elemhez add meg a helyes kategóriát.</span></div>
-      <div class="category-item-list"></div><button class="btn compact add-category-item" type="button">+ Elem</button>
-    </div>
-  </div>`;
-}
-
-function categoryItemRow(categories, text='') {
-  return `<div class="category-item-row"><input class="category-item-text" maxlength="240" value="${text}" placeholder="Elem / állítás"/><select class="category-correct">${categories.map((c,i)=>`<option value="${i}">${c}</option>`).join('')}</select><button class="mini-btn remove-category-item" type="button">×</button></div>`;
-}
-
-function addQuestion() {
-  const index = questionCounter++;
-  const wrap = document.createElement('section');
-  wrap.className='question-editor question-editor-large';
-  wrap.dataset.index=index;
-  wrap.dataset.imageUrl='';
-  wrap.dataset.target='';
-  wrap.innerHTML=`
-    <div class="question-editor-head"><div><strong class="question-number">${questionsEl.children.length+1}. kérdés</strong><span class="question-type-label small">${typeLabels.SINGLE_SELECT}</span></div><button class="btn compact danger remove-question" type="button">Törlés</button></div>
-    <div class="question-editor-grid">
-      <div class="question-main-column"><label>Kérdés szövege</label><textarea class="question-text question-text-large" rows="4" placeholder="Írd be a kérdést…"></textarea>${imageEditorHtml(index)}</div>
-      <aside class="question-settings-panel">
-        <label>Kérdéstípus</label><select class="question-type">
-          <option value="SINGLE_SELECT">Egy helyes válasz</option><option value="MULTI_SELECT">Több helyes válasz</option><option value="TRUE_FALSE">Igaz / hamis</option><option value="ORDERING">Sorrendbe rendezés</option><option value="CATEGORIZATION">Kategóriákba rendezés</option><option value="IMAGE_CLICK">Képre kattintás</option>
-        </select>
-        <label>Időkeret</label><select class="time-limit"><option value="15">15 mp</option><option value="20">20 mp</option><option value="30" selected>30 mp</option><option value="45">45 mp</option><option value="60">60 mp</option><option value="90">90 mp</option></select>
-        <label>Pont</label><input class="points" type="number" min="0" max="5000" value="1000" />
-      </aside>
-    </div>
-    <div class="answers-block"><div class="answers-block-head"><label>Válaszok</label><span class="answer-help small">Jelöld az egyetlen helyes választ.</span></div><div class="option-list">${answerRows(index,'SINGLE_SELECT')}</div><div class="special-editor"></div></div>`;
-
-  wrap.querySelector('.question-type').onchange=e=>renderType(wrap,e.target.value);
-  wrap.querySelector('.remove-question').onclick=()=>{ if(questionsEl.children.length===1)return; wrap.remove(); renumber(); };
-  setupImageEditor(wrap);
-  questionsEl.appendChild(wrap); renumber();
-}
-
-function setupImageEditor(wrap) {
-  const zone=wrap.querySelector('[data-image-zone]'); const input=zone.querySelector('.question-image-input');
-  const choose=()=>input.click();
-  zone.querySelector('.image-placeholder').onclick=choose; zone.querySelector('.replace-image').onclick=e=>{e.stopPropagation();choose();};
-  zone.querySelector('.remove-image').onclick=e=>{e.stopPropagation();wrap.dataset.imageUrl='';wrap.dataset.target='';updateImagePreview(wrap);};
-  zone.ondragover=e=>{e.preventDefault();zone.classList.add('drag-over');}; zone.ondragleave=()=>zone.classList.remove('drag-over');
-  zone.ondrop=e=>{e.preventDefault();zone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) loadImageFile(wrap,e.dataTransfer.files[0]);};
-  input.onchange=()=>{ if(input.files[0]) loadImageFile(wrap,input.files[0]); input.value=''; };
-  zone.querySelector('.image-preview-wrap').onclick=e=>{
-    if(wrap.querySelector('.question-type').value!=='IMAGE_CLICK') return;
-    const img=zone.querySelector('.image-preview'); const r=img.getBoundingClientRect();
-    const x=(e.clientX-r.left)/r.width, y=(e.clientY-r.top)/r.height;
-    if(x<0||x>1||y<0||y>1)return;
-    wrap.dataset.target=JSON.stringify({x:+x.toFixed(4),y:+y.toFixed(4),radius:0.09}); updateTargetMarker(wrap);
-  };
-}
-
-async function loadImageFile(wrap,file){
-  if(!file.type.startsWith('image/')) return;
-  wrap.dataset.imageUrl=await compressImage(file); updateImagePreview(wrap);
-}
-function compressImage(file){
-  return new Promise((resolve,reject)=>{ const img=new Image(); const url=URL.createObjectURL(file); img.onload=()=>{let w=img.width,h=img.height,max=1400;if(Math.max(w,h)>max){const s=max/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);URL.revokeObjectURL(url);resolve(c.toDataURL('image/jpeg',0.8));};img.onerror=reject;img.src=url;});
-}
-function updateImagePreview(wrap){
-  const has=!!wrap.dataset.imageUrl, zone=wrap.querySelector('[data-image-zone]');
-  zone.querySelector('.image-placeholder').classList.toggle('hidden',has); zone.querySelector('.image-preview-wrap').classList.toggle('hidden',!has); zone.querySelector('.image-actions').classList.toggle('hidden',!has);
-  if(has) zone.querySelector('.image-preview').src=wrap.dataset.imageUrl; else zone.querySelector('.image-preview').removeAttribute('src');
-  updateTargetMarker(wrap);
-}
-function updateTargetMarker(wrap){
-  const marker=wrap.querySelector('.target-marker'); let t=null; try{t=JSON.parse(wrap.dataset.target||'null');}catch{}
-  marker.classList.toggle('hidden',!t); if(t){marker.style.left=`${t.x*100}%`;marker.style.top=`${t.y*100}%`;marker.style.width=`${t.radius*200}%`;marker.style.aspectRatio='1';}
-}
-
-function renderType(wrap,type){
-  wrap.querySelector('.question-type-label').textContent=typeLabels[type]; const list=wrap.querySelector('.option-list'); const special=wrap.querySelector('.special-editor'); const help=wrap.querySelector('.answer-help');
-  list.classList.remove('hidden'); special.innerHTML='';
-  if(type==='SINGLE_SELECT'||type==='MULTI_SELECT'||type==='TRUE_FALSE'){list.innerHTML=answerRows(wrap.dataset.index,type);help.textContent=type==='MULTI_SELECT'?'Jelöld be az összes helyes választ.':type==='TRUE_FALSE'?'Válaszd ki az igaz vagy hamis választ.':'Jelöld az egyetlen helyes választ.';}
-  if(type==='ORDERING'){list.innerHTML=answerRows(wrap.dataset.index,type,4);help.innerHTML='Add meg a helyes sorrendet húzással vagy a nyilakkal. <button class="btn compact add-order-item" type="button">+ Elem</button>';setupOrderingEditor(wrap);}
-  if(type==='CATEGORIZATION'){list.innerHTML='';list.classList.add('hidden');help.textContent='Hozd létre a kategóriákat, majd rendeld hozzá az elemeket.';special.innerHTML=categoryEditorHtml();setupCategoryEditor(wrap);}
-  if(type==='IMAGE_CLICK'){list.innerHTML='';list.classList.add('hidden');help.textContent='Tölts fel egy képet, majd kattints a képen arra a pontra, amelyet helyesnek fogadunk el.';special.innerHTML='<div class="future-note">🎯 A képen megjelenő célkör jelzi az elfogadott területet.</div>';}
-  updateTargetMarker(wrap);
-}
-
-function setupOrderingEditor(wrap){
-  const list=wrap.querySelector('.option-list'); enablePointerSort(list); renumberOrdering(list); bindOrderButtons(wrap);
-  wrap.querySelector('.add-order-item').onclick=()=>{const count=list.querySelectorAll('.ordering-editor-item').length;if(count>=10)return;list.insertAdjacentHTML('beforeend',optionRow(wrap.dataset.index,count,'ORDERING',''));renumberOrdering(list);bindOrderButtons(wrap);};
-}
-function bindOrderButtons(wrap){
-  const list=wrap.querySelector('.option-list');
-  list.querySelectorAll('.move-up').forEach(b=>b.onclick=()=>moveOrder(b.closest('.ordering-editor-item'),-1));
-  list.querySelectorAll('.move-down').forEach(b=>b.onclick=()=>moveOrder(b.closest('.ordering-editor-item'),1));
-  list.querySelectorAll('.remove-order').forEach(b=>b.onclick=()=>{if(list.children.length<=2)return;b.closest('.ordering-editor-item').remove();renumberOrdering(list);});
-}
-function moveOrder(row,delta){const list=row.parentElement;const rows=[...list.children];const i=rows.indexOf(row),j=i+delta;if(j<0||j>=rows.length)return;if(delta<0)list.insertBefore(row,rows[j]);else list.insertBefore(rows[j],row);renumberOrdering(list);}
-function enablePointerSort(container){let dragged=null,pid=null;container.onpointerdown=e=>{const h=e.target.closest('.drag-handle');if(!h)return;dragged=h.closest('.sortable-item');pid=e.pointerId;h.setPointerCapture?.(pid);dragged.classList.add('dragging');e.preventDefault();};container.onpointermove=e=>{if(!dragged||e.pointerId!==pid)return;const t=document.elementFromPoint(e.clientX,e.clientY)?.closest('.sortable-item');if(!t||t===dragged||t.parentElement!==container)return;const r=t.getBoundingClientRect();container.insertBefore(dragged,e.clientY<r.top+r.height/2?t:t.nextSibling);renumberOrdering(container);};const stop=e=>{if(!dragged)return;dragged.classList.remove('dragging');dragged=null;pid=null;};container.onpointerup=stop;container.onpointercancel=stop;}
-function renumberOrdering(container){[...container.querySelectorAll('.ordering-editor-item')].forEach((r,i)=>r.querySelector('.answer-letter').textContent=i+1);}
-
-function setupCategoryEditor(wrap){
-  const editor=wrap.querySelector('.category-editor'), names=editor.querySelector('.category-name-list'), items=editor.querySelector('.category-item-list');
-  const refresh=()=>{const cats=[...names.querySelectorAll('.category-name')].map((x,i)=>x.value.trim()||`${i+1}. kategória`);items.querySelectorAll('.category-correct').forEach(s=>{const old=+s.value;s.innerHTML=cats.map((c,i)=>`<option value="${i}" ${i===old?'selected':''}>${escapeHtml(c)}</option>`).join('');});};
-  const bind=()=>{names.querySelectorAll('.category-name').forEach(x=>x.oninput=refresh);names.querySelectorAll('.remove-category').forEach(b=>b.onclick=()=>{if(names.children.length<=2)return;b.parentElement.remove();refresh();});items.querySelectorAll('.remove-category-item').forEach(b=>b.onclick=()=>{if(items.children.length<=2)return;b.parentElement.remove();});};
-  editor.querySelector('.add-category').onclick=()=>{if(names.children.length>=5)return;names.insertAdjacentHTML('beforeend',`<div class="category-name-row"><input class="category-name" value="${names.children.length+1}. kategória" maxlength="80"/><button class="mini-btn remove-category" type="button">×</button></div>`);bind();refresh();};
-  editor.querySelector('.add-category-item').onclick=()=>{if(items.children.length>=12)return;const cats=[...names.querySelectorAll('.category-name')].map(x=>x.value);items.insertAdjacentHTML('beforeend',categoryItemRow(cats));bind();};
-  const cats=[...names.querySelectorAll('.category-name')].map(x=>x.value); for(let i=0;i<6;i++)items.insertAdjacentHTML('beforeend',categoryItemRow(cats)); bind();
-}
-
-function renumber(){[...questionsEl.children].forEach((el,i)=>el.querySelector('.question-number').textContent=`${i+1}. kérdés`);}
-function escapeHtml(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-
-function collectQuestions(){return [...questionsEl.children].map(el=>{
-  const type=el.querySelector('.question-type').value, base={questionText:el.querySelector('.question-text').value.trim(),questionType:type,imageUrl:el.dataset.imageUrl||null,timeLimitSeconds:+el.querySelector('.time-limit').value,points:+el.querySelector('.points').value||1000,options:[],config:{}};
-  if(type==='CATEGORIZATION'){base.config.categories=[...el.querySelectorAll('.category-name')].map(x=>x.value.trim());base.options=[...el.querySelectorAll('.category-item-row')].map(r=>({text:r.querySelector('.category-item-text').value.trim(),imageUrl:null,isCorrect:false}));base.config.assignments=[...el.querySelectorAll('.category-correct')].map(x=>+x.value);return base;}
-  if(type==='IMAGE_CLICK'){try{base.config.target=JSON.parse(el.dataset.target||'null');}catch{base.config.target=null;}return base;}
-  const rows=[...el.querySelectorAll('.answer-editor')], correct=[...el.querySelectorAll('.correct-marker')].filter(x=>x.checked).map(x=>+x.value);base.options=rows.map((r,i)=>({text:r.querySelector('.answer-text').value.trim(),imageUrl:null,isCorrect:type==='ORDERING'?true:correct.includes(i)}));return base;
-});}
-
-async function saveQuiz(){const status=document.getElementById('status'),title=document.getElementById('title').value.trim(),description=document.getElementById('description').value.trim(),questions=collectQuestions();if(!title){status.textContent='Adj címet a kvíznek.';return;}
-  for(const [i,q] of questions.entries()){const n=`${i+1}. kérdés:`;if(!q.questionText){status.textContent=`${n} add meg a kérdés szövegét.`;return;}if(q.questionType==='IMAGE_CLICK'){if(!q.imageUrl){status.textContent=`${n} tölts fel képet.`;return;}if(!q.config.target){status.textContent=`${n} jelöld ki a helyes pontot a képen.`;return;}continue;}if(q.options.length<2||q.options.some(o=>!o.text)){status.textContent=`${n} töltsd ki az elemeket/válaszokat.`;return;}if(q.questionType==='ORDERING'){if(q.options.length>10){status.textContent=`${n} legfeljebb 10 elem lehet.`;return;}continue;}if(q.questionType==='CATEGORIZATION'){if(q.config.categories.length<2||q.config.categories.some(x=>!x)){status.textContent=`${n} legalább két kategória kell.`;return;}continue;}const c=q.options.filter(o=>o.isCorrect).length;if(!c){status.textContent=`${n} jelölj helyes választ.`;return;}if(q.questionType!=='MULTI_SELECT'&&c!==1){status.textContent=`${n} pontosan egy helyes válasz szükséges.`;return;}if(q.questionType==='MULTI_SELECT'&&c<2){status.textContent=`${n} legalább két helyes válasz kell.`;return;}}
-  document.getElementById('saveQuiz').disabled=document.getElementById('saveQuizTop').disabled=true;status.textContent='Mentés…';const res=await fetch('/api/quizzes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description,questions})});const data=await res.json();if(!res.ok){document.getElementById('saveQuiz').disabled=document.getElementById('saveQuizTop').disabled=false;status.textContent=data.error||'Nem sikerült menteni.';return;}location.href='/admin/dashboard';}
-
-document.getElementById('addQuestion').onclick=addQuestion;document.getElementById('saveQuiz').onclick=saveQuiz;document.getElementById('saveQuizTop').onclick=saveQuiz;addQuestion();
-</script>
-</body>
-</html>
+const $=s=>document.querySelector(s), editId=new URLSearchParams(location.search).get('id');let seq=0;
+const labels={SINGLE_SELECT:'Egy helyes válasz',MULTI_SELECT:'Több helyes válasz',TRUE_FALSE:'Igaz / hamis',ORDERING:'Sorrendbe rendezés',CATEGORIZATION:'Kategóriákba rendezés',IMAGE_CLICK:'Képre kattintás – polygon'};
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const blank=()=>({questionType:'SINGLE_SELECT',questionText:'',imageUrl:null,timeLimitSeconds:30,points:1000,explanation:'',options:[{text:'',isCorrect:true},{text:'',isCorrect:false},{text:'',isCorrect:false},{text:'',isCorrect:false}],config:{}});
+function normalize(d){d=structuredClone(d||blank());d.questionType=String(d.questionType||'SINGLE_SELECT').toUpperCase();d.config=d.config||{};d.options=Array.isArray(d.options)?d.options:[];if(d.questionType==='TRUE_FALSE')d.options=[{text:'Igaz',isCorrect:d.options[0]?.isCorrect!==false},{text:'Hamis',isCorrect:!!d.options[1]?.isCorrect}];if(d.questionType==='ORDERING'&&d.options.length<2)d.options=[{text:''},{text:''},{text:''},{text:''}];if(d.questionType==='CATEGORIZATION'){d.config.categories=d.config.categories?.length>=2?d.config.categories:['1. kategória','2. kategória','3. kategória'];if(d.options.length<2)d.options=[{text:''},{text:''},{text:''},{text:''}];d.config.assignments=Array.isArray(d.config.assignments)?d.config.assignments:Array(d.options.length).fill(0);}if(d.questionType==='IMAGE_CLICK'){d.options=[];d.config.polygon=Array.isArray(d.config.polygon)?d.config.polygon:[];}if(['SINGLE_SELECT','MULTI_SELECT'].includes(d.questionType)&&!d.options.length)d.options=blank().options;return d;}
+function addQuestion(data,after=null){const d=normalize(data||blank()),el=document.createElement('section');el.className='question-editor question-sortable';el.dataset.uid=seq++;el._d=d;el.innerHTML=`<div class="question-editor-head"><div><span class="drag-handle question-handle">☰</span><strong class="qno"></strong><span class="qtype small"></span></div><div class="question-head-actions"><button class="btn compact dup">Másolás</button><button class="btn compact danger del">Törlés</button></div></div><div class="question-editor-grid"><div><label>Kérdés szövege</label><textarea class="question-text question-text-large" rows="3"></textarea><label>Válaszmagyarázat <span class="small">(opcionális)</span></label><textarea class="explanation" rows="2"></textarea><div class="normal-image"></div></div><aside class="question-settings-panel"><label>Kérdéstípus</label><select class="question-type">${Object.entries(labels).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select><label>Időkeret</label><select class="time-limit">${[15,20,30,45,60,90,120].map(v=>`<option value="${v}">${v} mp</option>`).join('')}</select><label>Pont</label><input class="points" type="number" min="0" max="5000"></aside></div><div class="answers-block"><div class="answers-block-head"><strong>Válasz / megoldás</strong><span class="help small"></span></div><div class="body"></div></div>`;el.querySelector('.question-text').value=d.questionText||d.prompt||'';el.querySelector('.explanation').value=d.explanation||d.settings?.explanation||'';el.querySelector('.question-type').value=d.questionType;el.querySelector('.time-limit').value=String(d.timeLimitSeconds||d.settings?.timeLimitSeconds||30);el.querySelector('.points').value=d.points??d.settings?.points??1000;el.querySelector('.question-type').onchange=e=>{sync(el);el._d.questionType=e.target.value;el._d=normalize(el._d);render(el)};el.querySelector('.dup').onclick=()=>{sync(el);addQuestion(el._d,el)};el.querySelector('.del').onclick=()=>{if($('#questions').children.length<=1)return;el.remove();renumber()};if(after)after.after(el);else $('#questions').appendChild(el);render(el);renumber();return el;}
+function render(el){const d=el._d;el.querySelector('.qtype').textContent=labels[d.questionType];const b=el.querySelector('.body');b.innerHTML='';renderNormalImage(el);if(['SINGLE_SELECT','MULTI_SELECT','TRUE_FALSE'].includes(d.questionType))choices(el,b);else if(d.questionType==='ORDERING')ordering(el,b);else if(d.questionType==='CATEGORIZATION')categories(el,b);else polygon(el,b);}
+function renderNormalImage(el){const d=el._d,h=el.querySelector('.normal-image');h.classList.toggle('hidden',d.questionType==='IMAGE_CLICK');if(d.questionType==='IMAGE_CLICK')return;h.innerHTML=`<label>Kérdés képe</label><div class="image-dropzone"><input type="file" accept="image/*" hidden><div class="image-placeholder"><div class="image-dropzone-icon">🖼️</div><strong>${d.imageUrl?'Kép cseréje':'Kép hozzáadása'}</strong></div>${d.imageUrl?`<img class="basic-image-preview" src="${d.imageUrl}">`:''}</div>`;const z=h.querySelector('.image-dropzone'),f=h.querySelector('input');z.querySelector('.image-placeholder').onclick=()=>f.click();f.onchange=()=>f.files[0]&&loadImage(el,f.files[0]);z.ondragover=e=>e.preventDefault();z.ondrop=e=>{e.preventDefault();e.dataTransfer.files[0]&&loadImage(el,e.dataTransfer.files[0])};}
+function choices(el,b){const d=el._d,m=d.questionType==='MULTI_SELECT',tf=d.questionType==='TRUE_FALSE';el.querySelector('.help').textContent=m?'Több helyes válasz is megadható; a hallgató részpontot is kaphat.':'Jelöld a helyes választ.';d.options.forEach((o,i)=>{const r=document.createElement('div');r.className='answer-editor';r.innerHTML=`<input class="correct-marker" type="${m?'checkbox':'radio'}" name="c${el.dataset.uid}" ${o.isCorrect?'checked':''}><span class="answer-letter">${tf?(i?'×':'✓'):String.fromCharCode(65+i)}</span><input class="answer-text" maxlength="240" ${tf?'readonly':''}>`;r.querySelector('.answer-text').value=o.text||'';b.appendChild(r)});}
+function ordering(el,b){const d=el._d;el.querySelector('.help').textContent='Helyes sorrend; maximum 10 elem.';const l=document.createElement('div');l.className='ordering-editor-list';d.options.forEach(o=>{const r=document.createElement('div');r.className='ordering-item sortable-item';r.innerHTML='<span class="drag-handle">☰</span><span class="ordering-position"></span><input class="answer-text"><div class="order-controls"><button class="mini-btn up">↑</button><button class="mini-btn down">↓</button><button class="mini-btn rem">×</button></div>';r.querySelector('.answer-text').value=o.text||'';r.querySelector('.up').onclick=()=>move(r,-1);r.querySelector('.down').onclick=()=>move(r,1);r.querySelector('.rem').onclick=()=>{if(l.children.length<=2)return;r.remove();renumOrder(l)};l.appendChild(r)});b.appendChild(l);bindSort(l,'.sortable-item',renumOrder);renumOrder(l);const add=document.createElement('button');add.className='btn compact';add.textContent='+ Elem';add.onclick=()=>{sync(el);if(el._d.options.length>=10)return;el._d.options.push({text:''});render(el)};b.appendChild(add);}
+function move(r,d){const a=[...r.parentElement.children],i=a.indexOf(r),j=i+d;if(j<0||j>=a.length)return;if(d<0)r.parentElement.insertBefore(r,a[j]);else r.parentElement.insertBefore(a[j],r);renumOrder(r.parentElement)}function renumOrder(l){[...l.children].forEach((x,i)=>x.querySelector('.ordering-position').textContent=i+1)}
+function categories(el,b){const d=el._d;el.querySelector('.help').textContent='Kategóriák és a hozzájuk tartozó elemek.';b.innerHTML='<div class="category-editor"><div><strong>Kategóriák</strong><div class="catNames"></div><button class="btn compact addCat">+ Kategória</button></div><div><strong>Elemek</strong><div class="catItems"></div><button class="btn compact addItem">+ Elem</button></div></div>';const ns=b.querySelector('.catNames');d.config.categories.forEach((x,i)=>{const r=document.createElement('div');r.className='category-name-row';r.innerHTML='<input class="category-name"><button class="mini-btn">×</button>';r.querySelector('input').value=x;r.querySelector('button').onclick=()=>{if(d.config.categories.length<=2)return;sync(el);el._d.config.categories.splice(i,1);el._d.config.assignments=el._d.config.assignments.map(v=>v===i?0:v>i?v-1:v);render(el)};ns.appendChild(r)});const is=b.querySelector('.catItems');d.options.forEach((o,i)=>{const r=document.createElement('div');r.className='category-item-row';r.innerHTML=`<input class="category-item-text"><select class="category-correct">${d.config.categories.map((x,j)=>`<option value="${j}">${esc(x)}</option>`).join('')}</select><button class="mini-btn">×</button>`;r.querySelector('input').value=o.text||'';r.querySelector('select').value=String(d.config.assignments[i]??0);r.querySelector('button').onclick=()=>{if(d.options.length<=2)return;sync(el);el._d.options.splice(i,1);el._d.config.assignments.splice(i,1);render(el)};is.appendChild(r)});b.querySelector('.addCat').onclick=()=>{sync(el);if(el._d.config.categories.length>=6)return;el._d.config.categories.push(`${el._d.config.categories.length+1}. kategória`);render(el)};b.querySelector('.addItem').onclick=()=>{sync(el);if(el._d.options.length>=12)return;el._d.options.push({text:''});el._d.config.assignments.push(0);render(el)};}
+function polygon(el,b){const d=el._d;el.querySelector('.help').textContent='Kattintással adj hozzá csúcspontokat; a pontokat húzhatod, dupla kattintással törölheted.';b.innerHTML=`<div class="polygon-toolbar"><label class="btn compact">${d.imageUrl?'Kép cseréje':'Kép feltöltése'}<input class="polyFile" type="file" accept="image/*" hidden></label><button class="btn compact undo">Utolsó pont vissza</button><button class="btn compact clear">Polygon törlése</button></div><div class="polyHolder"></div><p class="small polyStatus"></p>`;b.querySelector('.polyFile').onchange=e=>e.target.files[0]&&loadImage(el,e.target.files[0]);b.querySelector('.undo').onclick=()=>{d.config.polygon.pop();drawPolygon(el)};b.querySelector('.clear').onclick=()=>{d.config.polygon=[];drawPolygon(el)};drawPolygon(el);}
+function drawPolygon(el){const b=el.querySelector('.body'),h=b.querySelector('.polyHolder'),d=el._d,s=b.querySelector('.polyStatus');if(!h)return;if(!d.imageUrl){h.innerHTML='<div class="polygon-stage empty"><div class="empty-poly">Először tölts fel egy képet.</div></div>';s.textContent='';return}h.innerHTML=`<div class="polygon-stage"><img src="${d.imageUrl}" draggable="false"><svg viewBox="0 0 1000 1000" preserveAspectRatio="none"><polygon></polygon><g></g></svg></div>`;const stage=h.firstElementChild,img=stage.querySelector('img'),svg=stage.querySelector('svg'),poly=svg.querySelector('polygon'),g=svg.querySelector('g'),pts=d.config.polygon;poly.setAttribute('points',pts.map(v=>`${v.x*1000},${v.y*1000}`).join(' '));pts.forEach((v,i)=>{const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx',v.x*1000);c.setAttribute('cy',v.y*1000);c.setAttribute('r',16);let active=false,pid=null;c.ondblclick=e=>{e.stopPropagation();d.config.polygon.splice(i,1);drawPolygon(el)};c.onpointerdown=e=>{active=true;pid=e.pointerId;c.setPointerCapture?.(pid);e.stopPropagation();e.preventDefault()};c.onpointermove=e=>{if(!active||e.pointerId!==pid)return;d.config.polygon[i]=relPoint(e,img);drawPolygon(el)};c.onpointerup=c.onpointercancel=()=>active=false;g.appendChild(c)});stage.onclick=e=>{if(e.target.tagName.toLowerCase()==='circle')return;const p=relPoint(e,img);if(p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1){d.config.polygon.push(p);drawPolygon(el)}};s.textContent=pts.length<3?`${pts.length} pont – legalább 3 kell.`:`${pts.length} polygonpont. A terület kész.`;}
+function relPoint(e,img){const r=img.getBoundingClientRect();return{x:+((e.clientX-r.left)/r.width).toFixed(4),y:+((e.clientY-r.top)/r.height).toFixed(4)}}
+function loadImage(el,file){if(!file.type.startsWith('image/'))return;const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{let w=img.width,h=img.height,k=Math.min(1,1600/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);el._d.imageUrl=c.toDataURL('image/jpeg',.82);URL.revokeObjectURL(u);render(el)};img.src=u;}
+function sync(el){const d=el._d;d.questionText=el.querySelector('.question-text').value.trim();d.explanation=el.querySelector('.explanation').value.trim();d.questionType=el.querySelector('.question-type').value;d.timeLimitSeconds=+el.querySelector('.time-limit').value;d.points=+el.querySelector('.points').value||0;if(['SINGLE_SELECT','MULTI_SELECT','TRUE_FALSE'].includes(d.questionType))d.options=[...el.querySelectorAll('.answer-editor')].map(r=>({text:r.querySelector('.answer-text').value.trim(),isCorrect:r.querySelector('.correct-marker').checked}));else if(d.questionType==='ORDERING')d.options=[...el.querySelectorAll('.ordering-item')].map(r=>({text:r.querySelector('.answer-text').value.trim()}));else if(d.questionType==='CATEGORIZATION'){d.config.categories=[...el.querySelectorAll('.category-name')].map(x=>x.value.trim());d.options=[...el.querySelectorAll('.category-item-row')].map(r=>({text:r.querySelector('.category-item-text').value.trim()}));d.config.assignments=[...el.querySelectorAll('.category-correct')].map(x=>+x.value)}return d}
+function renumber(){[...$('#questions').children].forEach((x,i)=>x.querySelector('.qno').textContent=`${i+1}. kérdés`)}
+function bindSort(root,itemSelector,after){let drag=null,pid=null;root.onpointerdown=e=>{const h=e.target.closest('.drag-handle');if(!h)return;drag=h.closest(itemSelector);if(!drag)return;pid=e.pointerId;h.setPointerCapture?.(pid);drag.classList.add('dragging');e.preventDefault()};root.onpointermove=e=>{if(!drag||e.pointerId!==pid)return;const t=document.elementFromPoint(e.clientX,e.clientY)?.closest(itemSelector);if(!t||t===drag||t.parentElement!==root)return;const r=t.getBoundingClientRect();root.insertBefore(drag,e.clientY<r.top+r.height/2?t:t.nextSibling);after?.(root)};root.onpointerup=root.onpointercancel=()=>{drag?.classList.remove('dragging');drag=null;pid=null;after?.(root)}}bindSort($('#questions'),'.question-sortable',()=>renumber());
+async function save(){const qs=[...$('#questions').children].map(sync),title=$('#title').value.trim(),description=$('#description').value.trim(),st=$('#status');if(!title)return st.textContent='Adj címet a kvíznek.';for(let i=0;i<qs.length;i++){const q=qs[i];if(!q.questionText)return st.textContent=`${i+1}. kérdés: hiányzik a szöveg.`;if(q.questionType==='IMAGE_CLICK'&&(!q.imageUrl||q.config.polygon.length<3))return st.textContent=`${i+1}. kérdés: kell kép és legalább 3 polygonpont.`;if(q.questionType==='MULTI_SELECT'&&q.options.filter(x=>x.isCorrect).length<2)return st.textContent=`${i+1}. kérdés: legalább két helyes válasz kell.`;if(['SINGLE_SELECT','TRUE_FALSE'].includes(q.questionType)&&q.options.filter(x=>x.isCorrect).length!==1)return st.textContent=`${i+1}. kérdés: pontosan egy helyes válasz kell.`;if(q.questionType!=='IMAGE_CLICK'&&q.options.some(x=>!x.text))return st.textContent=`${i+1}. kérdés: tölts ki minden elemet.`}st.textContent='Mentés…';const r=await fetch(editId?`/api/quizzes/${editId}`:'/api/quizzes',{method:editId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description,questions:qs})}),d=await r.json();if(!r.ok)return st.textContent=d.error||'Mentési hiba.';st.textContent='Mentve ✓';setTimeout(()=>location.href='/admin/dashboard',400)}
+$('#addQuestion').onclick=()=>addQuestion();$('#saveTop').onclick=$('#saveBottom').onclick=save;$('#exportBtn').onclick=()=>{const d={title:$('#title').value,description:$('#description').value,questions:[...$('#questions').children].map(sync)},a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));a.download=(d.title||'quiz')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)};$('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const d=JSON.parse(await e.target.files[0].text());$('#title').value=d.title||'';$('#description').value=d.description||'';$('#questions').innerHTML='';(d.questions||[]).forEach(x=>addQuestion(x));if(!$('#questions').children.length)addQuestion()}catch{$('#status').textContent='Hibás JSON fájl.'}};
+async function init(){if(!editId){addQuestion();return}$('#pageTitle').textContent='Kvíz szerkesztése';const r=await fetch(`/api/quizzes/${editId}`),d=await r.json();if(!r.ok)return $('#status').textContent=d.error;const z=d.quiz;$('#title').value=z.title||'';$('#description').value=z.description||'';(z.questions||[]).forEach(x=>{const t=String(x.questionType||'single_select').toUpperCase(),ca=x.correctAnswer,opts=(x.options||[]).map((o,i)=>({text:typeof o==='string'?o:o.text||'',isCorrect:Array.isArray(ca)&&ca.includes(i)}));addQuestion({questionType:t,questionText:x.prompt,imageUrl:x.imageUrl,timeLimitSeconds:x.settings?.timeLimitSeconds||30,points:x.settings?.points||1000,explanation:x.settings?.explanation||'',options:opts,config:{categories:x.settings?.categories||[],assignments:t==='CATEGORIZATION'&&Array.isArray(ca)?ca:[],polygon:t==='IMAGE_CLICK'?(ca?.polygon||[]):[]}})});if(!$('#questions').children.length)addQuestion()}init();
+</script></body></html>
