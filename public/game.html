@@ -44,7 +44,7 @@ function showQuestion(q){
   document.getElementById('submitWrap').classList.add('hidden');document.getElementById('submitAnswer').disabled=false;document.getElementById('answers').classList.remove('answer-locked');
   document.getElementById('prompt').textContent=q.prompt||'Kérdés';document.getElementById('questionMeta').textContent=q.questionNumber&&q.questionTotal?`${q.questionNumber}. / ${q.questionTotal}. kérdés`:'';
   const hint=document.getElementById('typeHint');
-  if(isMulti(q))hint.textContent='☑ Több helyes válasz – jelöld be mindet';
+  if(isMulti(q))hint.textContent='☑ Több helyes válasz – részpont is szerezhető';
   else if(isTF(q))hint.textContent='Igaz / hamis';
   else if(isOrdering(q))hint.textContent='↕ Húzd sorba az elemeket, vagy használd a ↑ ↓ nyilakat';
   else if(isCategory(q))hint.textContent='↔ Húzd az elemeket a megfelelő kategóriába – mobilon koppintással is működik';
@@ -62,7 +62,18 @@ function showQuestion(q){
   startTimer(Number(q.settings?.timeLimitSeconds||30));
 }
 
-function renderChoices(q,answers){answers.className='game-answers';(q.options||[]).forEach((o,i)=>{const b=document.createElement('button');b.type='button';b.className='answer-choice';const text=typeof o==='string'?o:o.text||'',badge=isTF(q)?(i===0?'✓':'×'):String.fromCharCode(65+i);b.innerHTML=`<span>${badge}</span><strong></strong>`;b.querySelector('strong').textContent=text;b.onclick=()=>selectAnswer(i,b);answers.appendChild(b);});document.getElementById('status').textContent=isMulti(q)?'Több válasz is helyes lehet.':'Válassz egy választ.';}
+function renderChoices(q,answers){
+  answers.className='game-answers';
+  const items=shuffled((q.options||[]).map((option,originalIndex)=>({option,originalIndex})));
+  items.forEach(({option,originalIndex},displayIndex)=>{
+    const b=document.createElement('button');b.type='button';b.className='answer-choice';
+    const text=typeof option==='string'?option:option.text||'';
+    const badge=isTF(q)?(originalIndex===0?'✓':'×'):String.fromCharCode(65+displayIndex);
+    b.innerHTML=`<span>${badge}</span><strong></strong>`;b.querySelector('strong').textContent=text;
+    b.onclick=()=>selectAnswer(originalIndex,b);answers.appendChild(b);
+  });
+  document.getElementById('status').textContent=isMulti(q)?'Jelöld be, amelyeket helyesnek gondolsz. A részben helyes megoldásért részpont jár.':'Válassz egy választ.';
+}
 function selectAnswer(i,b){if(submitted)return;if(isMulti(currentQuestion)){if(selectedIndexes.includes(i)){selectedIndexes=selectedIndexes.filter(x=>x!==i);b.classList.remove('selected');}else{selectedIndexes.push(i);b.classList.add('selected');}}else{selectedIndexes=[i];document.querySelectorAll('.answer-choice').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');}document.getElementById('submitWrap').classList.toggle('hidden',!selectedIndexes.length);}
 
 function renderOrdering(q,answers){answers.className='ordering-list';const items=shuffled((q.options||[]).map((option,originalIndex)=>({option,originalIndex})));items.forEach(({option,originalIndex})=>{const row=document.createElement('div');row.className='ordering-item sortable-item';row.dataset.index=originalIndex;const text=typeof option==='string'?option:option.text||'';row.innerHTML='<span class="ordering-position"></span><strong></strong><div class="order-controls"><button type="button" class="mini-btn order-up">↑</button><button type="button" class="mini-btn order-down">↓</button><span class="drag-handle" aria-label="Húzás">☰</span></div>';row.querySelector('strong').textContent=text;answers.appendChild(row);});renumberOrdering(answers);enablePointerSort(answers);bindGameOrderButtons(answers);document.getElementById('submitWrap').classList.remove('hidden');document.getElementById('status').textContent='Állítsd be a helyes sorrendet, majd küldd be.';}
@@ -94,7 +105,10 @@ async function submitAnswer(){
   submitted=true;clearInterval(timerHandle);lockQuestion();document.getElementById('submitAnswer').disabled=true;document.getElementById('status').textContent='Beküldés…';
   const res=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:player.id,sessionId:session.id,questionId:currentQuestion.id,answer})});const data=await res.json();
   if(!res.ok){submitted=false;unlockQuestion();document.getElementById('submitAnswer').disabled=false;document.getElementById('status').textContent=data.error||'Nem sikerült beküldeni.';return;}
-  const r=data.result;player.score=Number(r.total_score||player.score||0);sessionStorage.setItem('szagri_player',JSON.stringify(player));document.getElementById('questionView').classList.add('hidden');document.getElementById('resultView').classList.remove('hidden');document.getElementById('resultIcon').textContent=r.is_correct?'✓':'×';document.getElementById('resultTitle').textContent=r.is_correct?'Helyes válasz!':'Válasz elküldve';document.getElementById('resultText').textContent=r.is_correct?`+${r.points_awarded} pont · Összesen ${r.total_score} pont`:`Most 0 pont · Összesen ${r.total_score} pont`;
+  const r=data.result;const awarded=Number(r.points_awarded||0);player.score=Number(r.total_score||player.score||0);sessionStorage.setItem('szagri_player',JSON.stringify(player));document.getElementById('questionView').classList.add('hidden');document.getElementById('resultView').classList.remove('hidden');
+  document.getElementById('resultIcon').textContent=r.is_correct?'✓':awarded>0?'◐':'×';
+  document.getElementById('resultTitle').textContent=r.is_correct?'Helyes válasz!':awarded>0?'Részben helyes':'Válasz elküldve';
+  document.getElementById('resultText').textContent=awarded>0?`+${awarded} pont · Összesen ${r.total_score} pont`:`Most 0 pont · Összesen ${r.total_score} pont`;
 }
 function lockQuestion(){document.querySelectorAll('.answer-choice,.mini-btn,.category-item').forEach(x=>x.disabled=true);document.getElementById('answers').classList.add('answer-locked');}
 function unlockQuestion(){document.querySelectorAll('.answer-choice,.mini-btn,.category-item').forEach(x=>x.disabled=false);document.getElementById('answers').classList.remove('answer-locked');}
