@@ -15,16 +15,12 @@
       </div>
       <h1 class="page-title">Csatlakozás</h1>
       <p>Add meg a játékkódot, a nevedet, és válassz egy emojit.</p>
-
       <label for="code">Játékkód</label>
       <input id="code" inputmode="numeric" maxlength="6" placeholder="pl. 382741" />
-
       <label for="name">Név</label>
       <input id="name" maxlength="40" placeholder="pl. Nagy Anna" />
-
       <label>Emoji</label>
       <div id="emojiGrid" class="emoji-grid"></div>
-
       <div class="actions">
         <button id="join" class="btn primary" type="button">Belépés a kvízbe</button>
         <a class="btn" href="/">Vissza</a>
@@ -32,32 +28,14 @@
       <p id="status" class="small"></p>
     </section>
   </main>
-
-  <script>
-    const emojis = ["🐼","🦊","🐸","🐙","🐧","🦄","🐯","🐨","🦉","🐝","🐬","🦋","🌵","🍀","🚀","⭐"];
-    let selected = emojis[0];
-    const grid = document.getElementById('emojiGrid');
-    emojis.forEach((emoji, i) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'emoji' + (i === 0 ? ' selected' : ''); b.textContent = emoji;
-      b.onclick = () => { selected = emoji; document.querySelectorAll('.emoji').forEach(x => x.classList.remove('selected')); b.classList.add('selected'); };
-      grid.appendChild(b);
-    });
-
-    document.getElementById('join').onclick = async () => {
-      const status = document.getElementById('status');
-      const code = document.getElementById('code').value.trim();
-      const name = document.getElementById('name').value.trim();
-      status.textContent = 'Csatlakozás…';
-      const res = await fetch('/api/join', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({code, name, emoji: selected})
-      });
-      const data = await res.json();
-      if (!res.ok) { status.textContent = data.error || 'Nem sikerült csatlakozni.'; return; }
-      sessionStorage.setItem('szagri_player', JSON.stringify(data.player));
-      location.href = '/waiting';
-    };
-  </script>
+<script>
+const emojis=["🐼","🦊","🐸","🐙","🐧","🦄","🐯","🐨","🦉","🐝","🐬","🦋","🌵","🍀","🚀","⭐"];
+let selected=emojis[0];
+const grid=document.getElementById('emojiGrid');
+emojis.forEach((emoji,i)=>{const b=document.createElement('button');b.type='button';b.className='emoji'+(i===0?' selected':'');b.textContent=emoji;b.onclick=()=>{selected=emoji;document.querySelectorAll('.emoji').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');};grid.appendChild(b);});
+const queryCode=new URLSearchParams(location.search).get('code');
+if(/^\d{6}$/.test(queryCode||'')) document.getElementById('code').value=queryCode;
+document.getElementById('join').onclick=async()=>{const status=document.getElementById('status');const code=document.getElementById('code').value.trim();const name=document.getElementById('name').value.trim();status.textContent='Csatlakozás…';const res=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name,emoji:selected})});const data=await res.json();if(!res.ok){status.textContent=data.error||'Nem sikerült csatlakozni.';return;}sessionStorage.setItem('szagri_player',JSON.stringify(data.player));location.href='/waiting';};
+</script>
 </body>
 </html>
