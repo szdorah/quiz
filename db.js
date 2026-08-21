@@ -37,15 +37,24 @@ export async function createQuiz({ title, description = "", questions = [] }) {
   const normalized = questions.map(q => {
     const options = Array.isArray(q.options) ? q.options : [];
     const type = String(q.questionType || "single_select").toLowerCase();
+    const config = { ...(q.config || {}) };
+    let correctAnswer;
+
+    if (type === "ordering") correctAnswer = options.map((_, i) => i);
+    else if (type === "categorization") correctAnswer = Array.isArray(config.assignments) ? config.assignments.map(Number) : [];
+    else if (type === "image_click") correctAnswer = config.target || null;
+    else correctAnswer = options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null);
+
+    delete config.assignments;
+    delete config.target;
+
     return {
       questionType: type,
       prompt: String(q.questionText || q.prompt || "").trim(),
       imageUrl: q.imageUrl || null,
       options: options.map(o => ({ text: String(o?.text || ""), imageUrl: o?.imageUrl || null })),
-      correctAnswer: type === "ordering"
-        ? options.map((_, i) => i)
-        : options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null),
-      settings: { timeLimitSeconds: Number(q.timeLimitSeconds || 30), points: Number(q.points || 1000), ...(q.config || {}) },
+      correctAnswer,
+      settings: { timeLimitSeconds: Number(q.timeLimitSeconds || 30), points: Number(q.points || 1000), ...config },
     };
   });
   const id = await rpc("api_create_quiz", { p_title: title, p_description: description, p_questions: normalized });
@@ -69,13 +78,12 @@ export async function getGameState(gameId) {
   return { status: row.status, question: row.question_id ? normalizeQuestion(row) : null };
 }
 
-export async function submitAnswer({ playerId, questionId, selectedIndexes = null, orderedIndexes = null }) {
+export async function submitAnswer({ playerId, questionId, answer }) {
   try {
-    const row = first(await rpc("api_submit_answer_v3", {
+    const row = first(await rpc("api_submit_answer_v4", {
       p_player_id: playerId,
       p_question_id: questionId,
-      p_selected_indexes: selectedIndexes,
-      p_ordered_indexes: orderedIndexes,
+      p_answer: answer,
     }));
     return { ok: true, ...row };
   } catch (error) {
