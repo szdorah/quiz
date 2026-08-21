@@ -13,16 +13,14 @@
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
         <button id="logout" class="btn compact" type="button">Kilépés</button>
       </div>
-
       <div class="dashboard-head">
         <div>
           <span class="badge">Oktatói felület</span>
           <h1 class="page-title">Kvízeim</h1>
-          <p>Készíts kvízt, majd indíts hozzá élő játékot. A QR-kód a következő lépésben kerül az indítóképernyőre.</p>
+          <p>Indíts játékot, vetítsd ki a QR-kódot, majd várd meg a hallgatókat.</p>
         </div>
         <a class="btn primary" href="/admin/quiz/new">+ Új kvíz</a>
       </div>
-
       <div id="quizList"></div>
       <p id="status" class="small"></p>
     </section>
@@ -30,17 +28,24 @@
 
   <div id="gameModal" class="modal-backdrop hidden">
     <div class="modal-card">
-      <span class="badge">Játék elindítva</span>
+      <span class="badge">Váróterem</span>
       <h2 id="modalTitle">Kvíz</h2>
-      <div id="gameCode" class="big-code">000000</div>
-      <p>A hallgatók ezt a kódot adják meg a csatlakozási oldalon.</p>
-      <div class="join-link-box" id="joinUrl"></div>
-      <div class="actions">
-        <button id="copyLink" class="btn primary" type="button">Csatlakozási link másolása</button>
-        <button id="closeModal" class="btn" type="button">Bezárás</button>
+      <div class="lobby-layout">
+        <div>
+          <div id="gameCode" class="big-code">000000</div>
+          <p>A hallgatók a kóddal vagy a QR-kóddal csatlakozhatnak.</p>
+          <div class="join-link-box" id="joinUrl"></div>
+        </div>
+        <img id="qrCode" class="qr-code" alt="Csatlakozási QR-kód" />
       </div>
       <div id="playerCount" class="waiting-pill"><span class="pulse"></span> 0 hallgató csatlakozott</div>
       <div id="playerList" class="player-chips"></div>
+      <div class="actions">
+        <button id="beginGame" class="btn primary" type="button">▶ Kvíz indítása</button>
+        <button id="copyLink" class="btn" type="button">Link másolása</button>
+        <button id="closeModal" class="btn" type="button">Bezárás</button>
+      </div>
+      <p id="modalStatus" class="small"></p>
     </div>
   </div>
 
@@ -51,6 +56,7 @@
     const modal = document.getElementById('gameModal');
     const socket = io();
     let currentJoinUrl = '';
+    let currentSessionId = '';
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -68,11 +74,8 @@
       }
       quizList.innerHTML = `<div class="quiz-list">${data.quizzes.map(q => `
         <article class="quiz-row">
-          <div>
-            <strong>${escapeHtml(q.title)}</strong>
-            <span class="small">${q.question_count} kérdés${q.description ? ' · ' + escapeHtml(q.description) : ''}</span>
-          </div>
-          <button class="btn primary compact start-game" data-id="${q.id}" data-title="${escapeHtml(q.title)}" type="button">Kvíz indítása</button>
+          <div><strong>${escapeHtml(q.title)}</strong><span class="small">${q.question_count} kérdés${q.description ? ' · ' + escapeHtml(q.description) : ''}</span></div>
+          <button class="btn primary compact start-game" data-id="${q.id}" data-title="${escapeHtml(q.title)}" type="button">Játék létrehozása</button>
         </article>`).join('')}</div>`;
       document.querySelectorAll('.start-game').forEach(btn => btn.onclick = () => startGame(btn));
     }
@@ -83,15 +86,18 @@
       const data = await res.json();
       btn.disabled = false;
       if (!res.ok) { status.textContent = data.error || 'Nem sikerült elindítani.'; return; }
-
       currentJoinUrl = data.joinUrl;
+      currentSessionId = data.session.id;
       document.getElementById('modalTitle').textContent = btn.dataset.title;
       document.getElementById('gameCode').textContent = data.session.game_code;
       document.getElementById('joinUrl').textContent = data.joinUrl;
+      document.getElementById('qrCode').src = data.qrDataUrl;
       document.getElementById('playerCount').innerHTML = '<span class="pulse"></span> 0 hallgató csatlakozott';
       document.getElementById('playerList').innerHTML = '';
+      document.getElementById('modalStatus').textContent = '';
+      document.getElementById('beginGame').disabled = false;
       modal.classList.remove('hidden');
-      socket.emit('session:watch', data.session.id);
+      socket.emit('session:watch', currentSessionId);
     }
 
     socket.on('players:update', players => {
@@ -99,18 +105,30 @@
       document.getElementById('playerList').innerHTML = players.map(p => `<span class="player-chip">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</span>`).join('');
     });
 
+    document.getElementById('beginGame').onclick = async () => {
+      if (!currentSessionId) return;
+      const button = document.getElementById('beginGame');
+      button.disabled = true;
+      document.getElementById('modalStatus').textContent = 'Kvíz indítása…';
+      const res = await fetch(`/api/games/${currentSessionId}/begin`, {method:'POST'});
+      const data = await res.json();
+      if (!res.ok) {
+        button.disabled = false;
+        document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült elindítani.';
+        return;
+      }
+      document.getElementById('modalStatus').textContent = 'Az első kérdés elküldve a hallgatóknak ✓';
+      button.textContent = 'Kvíz elindítva ✓';
+    };
+
     document.getElementById('copyLink').onclick = async () => {
       if (!currentJoinUrl) return;
       await navigator.clipboard.writeText(currentJoinUrl);
       document.getElementById('copyLink').textContent = 'Kimásolva ✓';
-      setTimeout(() => document.getElementById('copyLink').textContent = 'Csatlakozási link másolása', 1500);
+      setTimeout(() => document.getElementById('copyLink').textContent = 'Link másolása', 1500);
     };
     document.getElementById('closeModal').onclick = () => modal.classList.add('hidden');
-    document.getElementById('logout').onclick = async () => {
-      await fetch('/api/admin/logout', {method:'POST'});
-      location.href = '/admin';
-    };
-
+    document.getElementById('logout').onclick = async () => { await fetch('/api/admin/logout', {method:'POST'}); location.href = '/admin'; };
     loadQuizzes();
   </script>
 </body>
