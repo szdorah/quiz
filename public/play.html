@@ -13,7 +13,7 @@
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
         <span class="badge">Hallgató</span>
       </div>
-      <h1 style="font-size:2.6rem;margin-top:34px">Csatlakozás</h1>
+      <h1 class="page-title">Csatlakozás</h1>
       <p>Add meg a játékkódot, a nevedet, és válassz egy emojit.</p>
 
       <label for="code">Játékkód</label>
@@ -33,27 +33,30 @@
     </section>
   </main>
 
-  <script src="/socket.io/socket.io.js"></script>
   <script>
     const emojis = ["🐼","🦊","🐸","🐙","🐧","🦄","🐯","🐨","🦉","🐝","🐬","🦋","🌵","🍀","🚀","⭐"];
     let selected = emojis[0];
     const grid = document.getElementById('emojiGrid');
     emojis.forEach((emoji, i) => {
       const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'emoji' + (i === 0 ? ' selected' : '');
-      b.textContent = emoji;
-      b.onclick = () => {
-        selected = emoji;
-        document.querySelectorAll('.emoji').forEach(x => x.classList.remove('selected'));
-        b.classList.add('selected');
-      };
+      b.type = 'button'; b.className = 'emoji' + (i === 0 ? ' selected' : ''); b.textContent = emoji;
+      b.onclick = () => { selected = emoji; document.querySelectorAll('.emoji').forEach(x => x.classList.remove('selected')); b.classList.add('selected'); };
       grid.appendChild(b);
     });
-    const socket = io();
-    socket.on('hello', () => document.getElementById('status').textContent = 'Kapcsolat a szerverrel rendben.');
-    document.getElementById('join').onclick = () => {
-      document.getElementById('status').textContent = 'A tényleges kvízcsatlakozást a következő lépésben kötjük be.';
+
+    document.getElementById('join').onclick = async () => {
+      const status = document.getElementById('status');
+      const code = document.getElementById('code').value.trim();
+      const name = document.getElementById('name').value.trim();
+      status.textContent = 'Csatlakozás…';
+      const res = await fetch('/api/join', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({code, name, emoji: selected})
+      });
+      const data = await res.json();
+      if (!res.ok) { status.textContent = data.error || 'Nem sikerült csatlakozni.'; return; }
+      sessionStorage.setItem('szagri_player', JSON.stringify(data.player));
+      location.href = '/waiting';
     };
   </script>
 </body>

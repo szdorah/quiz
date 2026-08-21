@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Váróterem – SZAGRI Quiz</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="card form-card center-card">
+      <div class="brand centered"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
+      <div id="avatar" class="waiting-avatar">🐼</div>
+      <h1 id="playerName" class="page-title">Szia!</h1>
+      <p>Csatlakoztál a <strong id="gameCode">000000</strong> kódú kvízhez.</p>
+      <div class="waiting-pill"><span class="pulse"></span> Várakozás az oktatóra…</div>
+      <div class="actions centered-actions">
+        <a class="btn" href="/play">Másik kóddal lépek be</a>
+      </div>
+    </section>
+  </main>
+  <script>
+    const raw = sessionStorage.getItem('szagri_player');
+    if (!raw) location.href = '/play';
+    else {
+      const p = JSON.parse(raw);
+      document.getElementById('avatar').textContent = p.emoji;
+      document.getElementById('playerName').textContent = `Szia, ${p.name}!`;
+      document.getElementById('gameCode').textContent = p.code;
+    }
+  </script>
+</body>
+</html>
