@@ -19,14 +19,24 @@
       </div>
     </section>
   </main>
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const raw = sessionStorage.getItem('szagri_player');
-    if (!raw) location.href = '/play';
+    const sessionRaw = sessionStorage.getItem('szagri_session');
+    if (!raw || !sessionRaw) location.href = '/play';
     else {
       const p = JSON.parse(raw);
+      const session = JSON.parse(sessionRaw);
       document.getElementById('avatar').textContent = p.emoji;
       document.getElementById('playerName').textContent = `Szia, ${p.name}!`;
       document.getElementById('gameCode').textContent = p.code;
+
+      const socket = io();
+      socket.on('connect', () => socket.emit('session:join', session.id));
+      socket.on('game:started', question => {
+        sessionStorage.setItem('szagri_question', JSON.stringify(question));
+        location.href = '/game';
+      });
     }
   </script>
 </body>

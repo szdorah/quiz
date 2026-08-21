@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kérdés – SZAGRI Quiz</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="card game-card">
+      <div class="topbar">
+        <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
+        <span id="timer" class="badge">30 mp</span>
+      </div>
+      <div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage" alt="Kérdés képe" /></div>
+      <h1 id="prompt" class="game-question">Kérdés betöltése…</h1>
+      <div id="answers" class="game-answers"></div>
+      <p class="small">Ebben a lépésben az első kérdés megjelenítése működik. A válasz beküldését a következő körben kötjük be.</p>
+    </section>
+  </main>
+<script>
+  const raw = sessionStorage.getItem('szagri_question');
+  if (!raw) location.href = '/waiting';
+  else {
+    const q = JSON.parse(raw);
+    document.getElementById('prompt').textContent = q.prompt || 'Kérdés';
+    const seconds = Number(q.settings?.timeLimitSeconds || 30);
+    document.getElementById('timer').textContent = `${seconds} mp`;
+    if (q.imageUrl) {
+      document.getElementById('questionImage').src = q.imageUrl;
+      document.getElementById('questionImageWrap').classList.remove('hidden');
+    }
+    const answers = document.getElementById('answers');
+    (q.options || []).forEach((option, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'answer-choice';
+      const text = typeof option === 'string' ? option : (option.text || '');
+      button.innerHTML = `<span>${String.fromCharCode(65 + index)}</span><strong></strong>`;
+      button.querySelector('strong').textContent = text;
+      button.onclick = () => {
+        document.querySelectorAll('.answer-choice').forEach(x => x.classList.remove('selected'));
+        button.classList.add('selected');
+      };
+      answers.appendChild(button);
+    });
+  }
+</script>
+</body>
+</html>

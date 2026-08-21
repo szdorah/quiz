@@ -4,7 +4,8 @@ import { Server } from "socket.io";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
-import { initDb, listQuizzes, createQuiz, startGame, addPlayer, listPlayersBySession } from "./db.js";
+import QRCode from "qrcode";
+import { initDb, listQuizzes, createQuiz, startGame, beginGame, addPlayer, listPlayersBySession } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,7 @@ app.get("/admin/dashboard", requireAdmin, (_req,res) => res.sendFile(path.join(_
 app.get("/admin/quiz/new", requireAdmin, (_req,res) => res.sendFile(path.join(__dirname,"public","quiz-new.html")));
 app.get("/play", (_req,res) => res.sendFile(path.join(__dirname,"public","play.html")));
 app.get("/waiting", (_req,res) => res.sendFile(path.join(__dirname,"public","waiting.html")));
+app.get("/game", (_req,res) => res.sendFile(path.join(__dirname,"public","game.html")));
 
 app.post("/api/admin/login", (req,res) => {
   if (String(req.body?.password || "") !== ADMIN_PASSWORD) return res.status(401).json({ok:false,error:"Hibás jelszó."});
@@ -69,8 +71,22 @@ app.post("/api/quizzes/:id/start", requireAdminApi, async (req,res) => {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});
     const session = await startGame(req.params.id);
-    res.json({ok:true, session, joinUrl:`${req.protocol}://${req.get("host")}/play?code=${session.game_code}`});
+    const joinUrl = `${req.protocol}://${req.get("host")}/play?code=${session.game_code}`;
+    const qrDataUrl = await QRCode.toDataURL(joinUrl, { width: 320, margin: 1 });
+    res.json({ok:true, session, joinUrl, qrDataUrl});
   } catch (error) { console.error(error); res.status(500).json({ok:false,error:"Nem sikerült elindítani a kvízt."}); }
+});
+
+app.post("/api/games/:id/begin", requireAdminApi, async (req,res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás játékazonosító."});
+    const state = await beginGame(req.params.id);
+    io.to(`session:${req.params.id}`).emit("game:started", state.question);
+    res.json({ok:true, question:state.question});
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ok:false,error:"A játék nem indítható. Lehet, hogy már elindult."});
+  }
 });
 
 app.post("/api/join", async (req,res) => {
@@ -97,6 +113,10 @@ io.on("connection", socket => {
     socket.join(room);
     try { socket.emit("players:update", await listPlayersBySession(sessionId)); }
     catch (error) { console.error(error); }
+  });
+  socket.on("session:join", sessionId => {
+    if (!isUuid(sessionId)) return;
+    socket.join(`session:${sessionId}`);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "szagri-quiz",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Lightweight realtime classroom quiz platform",
   "type": "module",
@@ -14,6 +14,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",
     "express": "^5.1.0",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.1"
   }
 }
