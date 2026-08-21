@@ -39,7 +39,7 @@
       <div class="section-head builder-section-head">
         <div>
           <strong>Kérdések</strong>
-          <span class="small">Egy helyes · több helyes · igaz/hamis</span>
+          <span class="small">Egy helyes · több helyes · igaz/hamis · sorrendbe rendezés</span>
         </div>
         <button id="addQuestion" class="btn compact" type="button">+ Új kérdés</button>
       </div>
@@ -61,18 +61,58 @@
   const typeLabels = {
     SINGLE_SELECT: 'Egy helyes válasz',
     MULTI_SELECT: 'Több helyes válasz',
-    TRUE_FALSE: 'Igaz / hamis'
+    TRUE_FALSE: 'Igaz / hamis',
+    ORDERING: 'Sorrendbe rendezés'
   };
 
   function answerRows(index, type) {
     const isMulti = type === 'MULTI_SELECT';
+    const isOrdering = type === 'ORDERING';
     const labels = type === 'TRUE_FALSE' ? ['Igaz', 'Hamis'] : ['', '', '', ''];
     return labels.map((fixedText, optionIndex) => `
-      <label class="answer-editor ${type === 'TRUE_FALSE' ? 'true-false-answer' : ''}">
-        <input class="correct-marker" type="${isMulti ? 'checkbox' : 'radio'}" name="correct-${index}" value="${optionIndex}" ${optionIndex === 0 ? 'checked' : ''} />
+      <label class="answer-editor ${type === 'TRUE_FALSE' ? 'true-false-answer' : ''} ${isOrdering ? 'sortable-item ordering-editor-item' : ''}">
+        ${isOrdering
+          ? '<span class="drag-handle" title="Húzd a megfelelő helyre">☰</span>'
+          : `<input class="correct-marker" type="${isMulti ? 'checkbox' : 'radio'}" name="correct-${index}" value="${optionIndex}" ${optionIndex === 0 ? 'checked' : ''} />`}
         <span class="answer-letter">${type === 'TRUE_FALSE' ? (optionIndex === 0 ? '✓' : '×') : String.fromCharCode(65 + optionIndex)}</span>
         <input class="answer-text" maxlength="240" value="${fixedText}" placeholder="${String.fromCharCode(65 + optionIndex)} válasz" ${type === 'TRUE_FALSE' ? 'readonly' : ''} />
       </label>`).join('');
+  }
+
+  function enablePointerSort(container) {
+    let dragged = null;
+    let pointerId = null;
+    container.onpointerdown = e => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+      dragged = handle.closest('.sortable-item');
+      pointerId = e.pointerId;
+      handle.setPointerCapture?.(pointerId);
+      dragged.classList.add('dragging');
+      e.preventDefault();
+    };
+    container.onpointermove = e => {
+      if (!dragged || e.pointerId !== pointerId) return;
+      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.sortable-item');
+      if (!target || target === dragged || target.parentElement !== container) return;
+      const rect = target.getBoundingClientRect();
+      container.insertBefore(dragged, e.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      renumberOrdering(container);
+    };
+    const stop = e => {
+      if (!dragged || (e.pointerId != null && e.pointerId !== pointerId)) return;
+      dragged.classList.remove('dragging');
+      dragged = null;
+      pointerId = null;
+    };
+    container.onpointerup = stop;
+    container.onpointercancel = stop;
+  }
+
+  function renumberOrdering(container) {
+    [...container.querySelectorAll('.ordering-editor-item')].forEach((row, i) => {
+      row.querySelector('.answer-letter').textContent = String(i + 1);
+    });
   }
 
   function addQuestion() {
@@ -97,7 +137,7 @@
           <div class="image-dropzone" role="button" tabindex="0">
             <div class="image-dropzone-icon">🖼️</div>
             <strong>Kép hozzáadása a kérdéshez</strong>
-            <span class="small">A hely már elő van készítve; a tényleges feltöltést a következő lépésben kötjük be.</span>
+            <span class="small">A tényleges képfeltöltést külön lépésben kötjük be.</span>
           </div>
         </div>
 
@@ -107,6 +147,7 @@
             <option value="SINGLE_SELECT">Egy helyes válasz</option>
             <option value="MULTI_SELECT">Több helyes válasz</option>
             <option value="TRUE_FALSE">Igaz / hamis</option>
+            <option value="ORDERING">Sorrendbe rendezés</option>
           </select>
 
           <label>Időkeret</label>
@@ -145,13 +186,20 @@
 
   function renderType(wrap, type) {
     wrap.querySelector('.question-type-label').textContent = typeLabels[type];
-    wrap.querySelector('.option-list').innerHTML = answerRows(wrap.dataset.index, type);
+    const list = wrap.querySelector('.option-list');
+    list.innerHTML = answerRows(wrap.dataset.index, type);
     const help = wrap.querySelector('.answer-help');
     help.textContent = type === 'MULTI_SELECT'
       ? 'Jelöld be az összes helyes választ.'
       : type === 'TRUE_FALSE'
         ? 'Válaszd ki, hogy az állítás igaz vagy hamis.'
-        : 'Jelöld az egyetlen helyes választ.';
+        : type === 'ORDERING'
+          ? 'Add meg a helyes sorrendet húzással. Ebben a sorrendben mentjük el a megoldást.'
+          : 'Jelöld az egyetlen helyes választ.';
+    if (type === 'ORDERING') {
+      enablePointerSort(list);
+      renumberOrdering(list);
+    }
   }
 
   function renumber() {
@@ -166,14 +214,17 @@
       const correct = [...el.querySelectorAll('.correct-marker')]
         .filter(input => input.checked)
         .map(input => Number(input.value));
+      const optionRows = [...el.querySelectorAll('.answer-editor')];
       return {
         questionText: el.querySelector('.question-text').value.trim(),
         questionType: type,
         imageUrl: null,
         timeLimitSeconds: Number(el.querySelector('.time-limit').value),
         points: Number(el.querySelector('.points').value || 1000),
-        options: [...el.querySelectorAll('.answer-text')].map((input, i) => ({
-          text: input.value.trim(), imageUrl: null, isCorrect: correct.includes(i)
+        options: optionRows.map((row, i) => ({
+          text: row.querySelector('.answer-text').value.trim(),
+          imageUrl: null,
+          isCorrect: type === 'ORDERING' ? true : correct.includes(i)
         }))
       };
     });
@@ -189,6 +240,7 @@
     for (const [i, q] of questions.entries()) {
       if (!q.questionText) { status.textContent = `${i + 1}. kérdés: add meg a kérdés szövegét.`; return; }
       if (q.options.some(o => !o.text)) { status.textContent = `${i + 1}. kérdés: töltsd ki a válaszokat.`; return; }
+      if (q.questionType === 'ORDERING') continue;
       const correctCount = q.options.filter(o => o.isCorrect).length;
       if (!correctCount) { status.textContent = `${i + 1}. kérdés: jelölj helyes választ.`; return; }
       if (q.questionType !== 'MULTI_SELECT' && correctCount !== 1) { status.textContent = `${i + 1}. kérdés: pontosan egy helyes válasz szükséges.`; return; }
