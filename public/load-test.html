@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Terhelésteszt – SZAGRI Quiz</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="card form-card wide-form">
+      <div class="topbar">
+        <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
+        <span class="badge">Teszt</span>
+      </div>
+      <h1 class="page-title">Terhelésteszt</h1>
+      <p>Adj meg egy váróteremben lévő 6 jegyű játékkódot. A böngésző virtuális hallgatókat léptet be, Socket.IO kapcsolatot nyit nekik, és automatikusan válaszol a kérdésekre.</p>
+
+      <label for="code">Játékkód</label>
+      <input id="code" inputmode="numeric" maxlength="6" placeholder="pl. 382741" />
+
+      <label for="count">Virtuális hallgatók száma</label>
+      <select id="count">
+        <option value="20" selected>20 fő</option>
+        <option value="50">50 fő</option>
+        <option value="100">100 fő</option>
+      </select>
+
+      <div class="actions">
+        <button id="start" class="btn primary" type="button">20 tesztjátékos indítása</button>
+        <a class="btn" href="/admin/dashboard">Vissza</a>
+      </div>
+
+      <div class="grid" style="margin-top:24px">
+        <div class="stat"><strong id="joined">0</strong><span class="small">belépett</span></div>
+        <div class="stat"><strong id="connected">0</strong><span class="small">socket kapcsolat</span></div>
+        <div class="stat"><strong id="answered">0</strong><span class="small">beküldött válasz</span></div>
+      </div>
+      <p id="status" class="small"></p>
+      <div id="log" class="join-link-box" style="margin-top:18px;max-height:260px;overflow:auto;white-space:pre-wrap"></div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const emojis = ['🐼','🦊','🐸','🐙','🐧','🦄','🐯','🐨'];
+    const clients = [];
+    let joined = 0, connected = 0, answered = 0;
+    const status = document.getElementById('status');
+    const log = document.getElementById('log');
+
+    function updateStats() {
+      document.getElementById('joined').textContent = joined;
+      document.getElementById('connected').textContent = connected;
+      document.getElementById('answered').textContent = answered;
+    }
+    function write(message) {
+      log.textContent += message + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+
+    document.getElementById('count').onchange = e => {
+      document.getElementById('start').textContent = `${e.target.value} tesztjátékos indítása`;
+    };
+
+    document.getElementById('start').onclick = async () => {
+      const button = document.getElementById('start');
+      const code = document.getElementById('code').value.trim();
+      const count = Number(document.getElementById('count').value);
+      if (!/^\d{6}$/.test(code)) { status.textContent = 'Adj meg egy 6 jegyű játékkódot.'; return; }
+      button.disabled = true;
+      status.textContent = 'Virtuális hallgatók beléptetése…';
+      joined = connected = answered = 0;
+      updateStats();
+      log.textContent = '';
+      const run = Date.now().toString().slice(-5);
+
+      const tasks = Array.from({length: count}, async (_, i) => {
+        await new Promise(r => setTimeout(r, i * 80));
+        const name = `Teszt-${run}-${String(i + 1).padStart(3,'0')}`;
+        try {
+          const res = await fetch('/api/join', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ code, name, emoji: emojis[i % emojis.length] })
+          });
+          const data = await res.json();
+          if (!res.ok) { write(`${name}: belépési hiba – ${data.error || res.status}`); return; }
+          joined++; updateStats();
+
+          const player = data.player;
+          const session = data.session;
+          const socket = io({ forceNew: true, reconnection: true, transports:['websocket','polling'] });
+          clients.push(socket);
+          socket.on('connect', () => {
+            connected++; updateStats();
+            socket.emit('session:join', session.id);
+          });
+          socket.on('game:question', question => {
+            const optionCount = Array.isArray(question.options) ? question.options.length : 0;
+            if (!optionCount) return;
+            const selectedIndex = Math.floor(Math.random() * optionCount);
+            const delay = 200 + Math.floor(Math.random() * 1800);
+            setTimeout(async () => {
+              try {
+                const answerRes = await fetch('/api/answers', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ playerId: player.id, sessionId: session.id, questionId: question.id, selectedIndex })
+                });
+                if (answerRes.ok) { answered++; updateStats(); }
+                else { const d = await answerRes.json(); write(`${name}: válaszhiba – ${d.error || answerRes.status}`); }
+              } catch (e) { write(`${name}: hálózati válaszhiba`); }
+            }, delay);
+          });
+        } catch (e) {
+          write(`${name}: hálózati belépési hiba`);
+        }
+      });
+
+      await Promise.all(tasks);
+      status.textContent = `${joined}/${count} virtuális hallgató belépett. Most indítsd el a kvízt az oktatói váróteremben.`;
+      button.disabled = false;
+      write(`Beléptetés kész: ${joined}/${count}`);
+    };
+  </script>
+</body>
+</html>
