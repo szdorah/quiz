@@ -63,6 +63,23 @@ export async function startGame(quizId) {
   return { id: row.game_id, quiz_id: quizId, game_code: row.code, status: "waiting" };
 }
 
+export async function beginGame(gameId) {
+  const rows = await rpc("api_begin_game", { p_game_id: gameId });
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row) throw new Error("A kvízben nincs kérdés.");
+  return {
+    gameId: row.game_id,
+    question: {
+      id: row.question_id,
+      questionType: row.question_type,
+      prompt: row.prompt,
+      imageUrl: row.image_url,
+      options: row.options || [],
+      settings: row.settings || {},
+    },
+  };
+}
+
 export async function addPlayer({ code, name, emoji }) {
   try {
     const rows = await rpc("api_join_game", { p_code: code, p_name: name, p_emoji: emoji });
