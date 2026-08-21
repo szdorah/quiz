@@ -30,7 +30,6 @@
     <div class="modal-card">
       <span id="gameBadge" class="badge">Váróterem</span>
       <h2 id="modalTitle">Kvíz</h2>
-
       <div id="lobbyView">
         <div class="lobby-layout">
           <div>
@@ -43,19 +42,8 @@
         <div id="playerCount" class="waiting-pill"><span class="pulse"></span> 0 hallgató csatlakozott</div>
         <div id="playerList" class="player-chips"></div>
       </div>
-
-      <div id="runningView" class="hidden">
-        <div class="stat" style="margin-top:18px">
-          <strong id="activeQuestion">Kérdés folyamatban</strong>
-          <span id="answerProgress" class="small">0 válasz érkezett</span>
-        </div>
-      </div>
-
-      <div id="leaderboardView" class="hidden">
-        <h3>Végeredmény</h3>
-        <div id="leaderboard"></div>
-      </div>
-
+      <div id="runningView" class="hidden"><div class="stat" style="margin-top:18px"><strong id="activeQuestion">Kérdés folyamatban</strong><span id="answerProgress" class="small">0 válasz érkezett</span></div></div>
+      <div id="leaderboardView" class="hidden"><h3>Végeredmény</h3><div id="leaderboard"></div></div>
       <div class="actions">
         <button id="beginGame" class="btn primary" type="button">▶ Kvíz indítása</button>
         <button id="nextQuestion" class="btn primary hidden" type="button">Következő kérdés →</button>
@@ -66,143 +54,143 @@
     </div>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const quizList = document.getElementById('quizList');
-    const status = document.getElementById('status');
-    const modal = document.getElementById('gameModal');
-    const socket = io();
-    let currentJoinUrl = '';
-    let currentSessionId = '';
-    let questionNumber = 0;
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const quizList = document.getElementById('quizList');
+  const status = document.getElementById('status');
+  const modal = document.getElementById('gameModal');
+  const socket = io();
+  let currentJoinUrl = '';
+  let currentSessionId = '';
+  let questionNumber = 0;
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+
+  async function loadQuizzes() {
+    status.textContent = 'Betöltés…';
+    const res = await fetch('/api/quizzes');
+    const data = await res.json();
+    if (!res.ok) { status.textContent = data.error || 'Nem sikerült betölteni.'; return; }
+    status.textContent = '';
+    if (!data.quizzes.length) {
+      quizList.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div><strong>Még nincs mentett kvíz</strong><span class="small">Készítsük el az elsőt.</span></div>`;
+      return;
     }
-
-    async function loadQuizzes() {
-      status.textContent = 'Betöltés…';
-      const res = await fetch('/api/quizzes');
-      const data = await res.json();
-      if (!res.ok) { status.textContent = data.error || 'Nem sikerült betölteni.'; return; }
-      status.textContent = '';
-      if (!data.quizzes.length) {
-        quizList.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div><strong>Még nincs mentett kvíz</strong><span class="small">Készítsük el az elsőt.</span></div>`;
-        return;
-      }
-      quizList.innerHTML = `<div class="quiz-list">${data.quizzes.map(q => `
-        <article class="quiz-row">
-          <div><strong>${escapeHtml(q.title)}</strong><span class="small">${q.question_count} kérdés${q.description ? ' · ' + escapeHtml(q.description) : ''}</span></div>
+    quizList.innerHTML = `<div class="quiz-list">${data.quizzes.map(q => `
+      <article class="quiz-row">
+        <div><strong>${escapeHtml(q.title)}</strong><span class="small">${q.question_count} kérdés${q.description ? ' · ' + escapeHtml(q.description) : ''}</span></div>
+        <div class="quiz-row-actions">
           <button class="btn primary compact start-game" data-id="${q.id}" data-title="${escapeHtml(q.title)}" type="button">Játék létrehozása</button>
-        </article>`).join('')}</div>`;
-      document.querySelectorAll('.start-game').forEach(btn => btn.onclick = () => startGame(btn));
-    }
+          <button class="btn compact danger delete-quiz" data-id="${q.id}" data-title="${escapeHtml(q.title)}" type="button">Törlés</button>
+        </div>
+      </article>`).join('')}</div>`;
+    document.querySelectorAll('.start-game').forEach(btn => btn.onclick = () => startGame(btn));
+    document.querySelectorAll('.delete-quiz').forEach(btn => btn.onclick = () => deleteQuiz(btn));
+  }
 
-    async function startGame(btn) {
-      btn.disabled = true;
-      const res = await fetch(`/api/quizzes/${btn.dataset.id}/start`, {method:'POST'});
-      const data = await res.json();
-      btn.disabled = false;
-      if (!res.ok) { status.textContent = data.error || 'Nem sikerült elindítani.'; return; }
-      currentJoinUrl = data.joinUrl;
-      currentSessionId = data.session.id;
-      questionNumber = 0;
-      document.getElementById('modalTitle').textContent = btn.dataset.title;
-      document.getElementById('gameCode').textContent = data.session.game_code;
-      document.getElementById('joinUrl').textContent = data.joinUrl;
-      document.getElementById('qrCode').src = data.qrDataUrl;
-      document.getElementById('playerCount').innerHTML = '<span class="pulse"></span> 0 hallgató csatlakozott';
-      document.getElementById('playerList').innerHTML = '';
-      document.getElementById('modalStatus').textContent = '';
-      document.getElementById('beginGame').disabled = false;
-      document.getElementById('beginGame').classList.remove('hidden');
-      document.getElementById('nextQuestion').classList.add('hidden');
-      document.getElementById('lobbyView').classList.remove('hidden');
-      document.getElementById('runningView').classList.add('hidden');
-      document.getElementById('leaderboardView').classList.add('hidden');
-      document.getElementById('gameBadge').textContent = 'Váróterem';
-      modal.classList.remove('hidden');
-      socket.emit('session:watch', currentSessionId);
-    }
+  async function deleteQuiz(btn) {
+    const title = btn.dataset.title || 'ezt a kvízt';
+    const ok = confirm(`Biztosan törlöd: „${title}”?\n\nA kvízhez tartozó korábbi játékok és eredmények is törlődnek.`);
+    if (!ok) return;
+    btn.disabled = true;
+    status.textContent = 'Törlés…';
+    const res = await fetch(`/api/quizzes/${btn.dataset.id}`, {method:'DELETE'});
+    const data = await res.json();
+    if (!res.ok) { btn.disabled = false; status.textContent = data.error || 'Nem sikerült törölni.'; return; }
+    status.textContent = 'Kvíz törölve.';
+    await loadQuizzes();
+  }
 
-    socket.on('players:update', players => {
-      document.getElementById('playerCount').innerHTML = `<span class="pulse"></span> ${players.length} hallgató csatlakozott`;
-      document.getElementById('playerList').innerHTML = players.map(p => `<span class="player-chip">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</span>`).join('');
-    });
+  async function startGame(btn) {
+    btn.disabled = true;
+    const res = await fetch(`/api/quizzes/${btn.dataset.id}/start`, {method:'POST'});
+    const data = await res.json();
+    btn.disabled = false;
+    if (!res.ok) { status.textContent = data.error || 'Nem sikerült elindítani.'; return; }
+    currentJoinUrl = data.joinUrl;
+    currentSessionId = data.session.id;
+    questionNumber = 0;
+    document.getElementById('modalTitle').textContent = btn.dataset.title;
+    document.getElementById('gameCode').textContent = data.session.game_code;
+    document.getElementById('joinUrl').textContent = data.joinUrl;
+    document.getElementById('qrCode').src = data.qrDataUrl;
+    document.getElementById('playerCount').innerHTML = '<span class="pulse"></span> 0 hallgató csatlakozott';
+    document.getElementById('playerList').innerHTML = '';
+    document.getElementById('modalStatus').textContent = '';
+    document.getElementById('beginGame').disabled = false;
+    document.getElementById('beginGame').classList.remove('hidden');
+    document.getElementById('nextQuestion').classList.add('hidden');
+    document.getElementById('lobbyView').classList.remove('hidden');
+    document.getElementById('runningView').classList.add('hidden');
+    document.getElementById('leaderboardView').classList.add('hidden');
+    document.getElementById('gameBadge').textContent = 'Váróterem';
+    modal.classList.remove('hidden');
+    socket.emit('session:watch', currentSessionId);
+  }
 
-    socket.on('answers:progress', progress => {
-      document.getElementById('answerProgress').textContent = `${progress.answeredCount} / ${progress.playerCount} válasz érkezett`;
-    });
+  socket.on('players:update', players => {
+    document.getElementById('playerCount').innerHTML = `<span class="pulse"></span> ${players.length} hallgató csatlakozott`;
+    document.getElementById('playerList').innerHTML = players.map(p => `<span class="player-chip">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</span>`).join('');
+  });
+  socket.on('answers:progress', progress => { document.getElementById('answerProgress').textContent = `${progress.answeredCount} / ${progress.playerCount} válasz érkezett`; });
 
-    document.getElementById('beginGame').onclick = async () => {
-      if (!currentSessionId) return;
-      const button = document.getElementById('beginGame');
-      button.disabled = true;
-      document.getElementById('modalStatus').textContent = 'Kvíz indítása…';
-      const res = await fetch(`/api/games/${currentSessionId}/begin`, {method:'POST'});
-      const data = await res.json();
-      if (!res.ok) {
-        button.disabled = false;
-        document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült elindítani.';
-        return;
-      }
-      questionNumber = 1;
-      document.getElementById('lobbyView').classList.add('hidden');
-      document.getElementById('runningView').classList.remove('hidden');
-      document.getElementById('gameBadge').textContent = 'Élő játék';
-      document.getElementById('activeQuestion').textContent = '1. kérdés folyamatban';
-      document.getElementById('answerProgress').textContent = '0 válasz érkezett';
-      document.getElementById('modalStatus').textContent = 'A kérdés elküldve a hallgatóknak.';
-      button.classList.add('hidden');
-      document.getElementById('nextQuestion').classList.remove('hidden');
-    };
+  document.getElementById('beginGame').onclick = async () => {
+    if (!currentSessionId) return;
+    const button = document.getElementById('beginGame');
+    button.disabled = true;
+    document.getElementById('modalStatus').textContent = 'Kvíz indítása…';
+    const res = await fetch(`/api/games/${currentSessionId}/begin`, {method:'POST'});
+    const data = await res.json();
+    if (!res.ok) { button.disabled = false; document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült elindítani.'; return; }
+    questionNumber = 1;
+    document.getElementById('lobbyView').classList.add('hidden');
+    document.getElementById('runningView').classList.remove('hidden');
+    document.getElementById('gameBadge').textContent = 'Élő játék';
+    document.getElementById('activeQuestion').textContent = '1. kérdés folyamatban';
+    document.getElementById('answerProgress').textContent = '0 válasz érkezett';
+    document.getElementById('modalStatus').textContent = 'A kérdés elküldve a hallgatóknak.';
+    button.classList.add('hidden');
+    document.getElementById('nextQuestion').classList.remove('hidden');
+  };
 
-    document.getElementById('nextQuestion').onclick = async () => {
-      if (!currentSessionId) return;
-      const button = document.getElementById('nextQuestion');
-      button.disabled = true;
-      document.getElementById('modalStatus').textContent = 'Továbblépés…';
-      const res = await fetch(`/api/games/${currentSessionId}/next`, {method:'POST'});
-      const data = await res.json();
-      button.disabled = false;
-      if (!res.ok) {
-        document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült továbblépni.';
-        return;
-      }
-      if (data.status === 'finished') {
-        showLeaderboard(data.leaderboard || []);
-        return;
-      }
-      questionNumber = Number(data.question?.questionNumber || questionNumber + 1);
-      document.getElementById('activeQuestion').textContent = `${questionNumber}. kérdés folyamatban`;
-      document.getElementById('answerProgress').textContent = '0 válasz érkezett';
-      document.getElementById('modalStatus').textContent = 'A következő kérdés elküldve.';
-    };
+  document.getElementById('nextQuestion').onclick = async () => {
+    if (!currentSessionId) return;
+    const button = document.getElementById('nextQuestion');
+    button.disabled = true;
+    document.getElementById('modalStatus').textContent = 'Továbblépés…';
+    const res = await fetch(`/api/games/${currentSessionId}/next`, {method:'POST'});
+    const data = await res.json();
+    button.disabled = false;
+    if (!res.ok) { document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült továbblépni.'; return; }
+    if (data.status === 'finished') { showLeaderboard(data.leaderboard || []); return; }
+    questionNumber = Number(data.question?.questionNumber || questionNumber + 1);
+    document.getElementById('activeQuestion').textContent = `${questionNumber}. kérdés folyamatban`;
+    document.getElementById('answerProgress').textContent = '0 válasz érkezett';
+    document.getElementById('modalStatus').textContent = 'A következő kérdés elküldve.';
+  };
 
-    function showLeaderboard(board) {
-      document.getElementById('runningView').classList.add('hidden');
-      document.getElementById('leaderboardView').classList.remove('hidden');
-      document.getElementById('nextQuestion').classList.add('hidden');
-      document.getElementById('copyLink').classList.add('hidden');
-      document.getElementById('gameBadge').textContent = 'Kvíz vége';
-      document.getElementById('modalStatus').textContent = '';
-      const medals = ['🥇','🥈','🥉'];
-      document.getElementById('leaderboard').innerHTML = (board || []).map((p,i) => `
-        <article class="quiz-row">
-          <strong>${medals[i] || (i+1)+'.'} ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</strong>
-          <strong>${p.score} pont</strong>
-        </article>`).join('');
-    }
+  function showLeaderboard(board) {
+    document.getElementById('runningView').classList.add('hidden');
+    document.getElementById('leaderboardView').classList.remove('hidden');
+    document.getElementById('nextQuestion').classList.add('hidden');
+    document.getElementById('copyLink').classList.add('hidden');
+    document.getElementById('gameBadge').textContent = 'Kvíz vége';
+    document.getElementById('modalStatus').textContent = '';
+    const medals = ['🥇','🥈','🥉'];
+    document.getElementById('leaderboard').innerHTML = (board || []).map((p,i) => `<article class="quiz-row"><strong>${medals[i] || (i+1)+'.'} ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</strong><strong>${p.score} pont</strong></article>`).join('');
+  }
 
-    document.getElementById('copyLink').onclick = async () => {
-      if (!currentJoinUrl) return;
-      await navigator.clipboard.writeText(currentJoinUrl);
-      document.getElementById('copyLink').textContent = 'Kimásolva ✓';
-      setTimeout(() => document.getElementById('copyLink').textContent = 'Link másolása', 1500);
-    };
-    document.getElementById('closeModal').onclick = () => modal.classList.add('hidden');
-    document.getElementById('logout').onclick = async () => { await fetch('/api/admin/logout', {method:'POST'}); location.href = '/admin'; };
-    loadQuizzes();
-  </script>
+  document.getElementById('copyLink').onclick = async () => {
+    if (!currentJoinUrl) return;
+    await navigator.clipboard.writeText(currentJoinUrl);
+    document.getElementById('copyLink').textContent = 'Kimásolva ✓';
+    setTimeout(() => document.getElementById('copyLink').textContent = 'Link másolása', 1500);
+  };
+  document.getElementById('closeModal').onclick = () => modal.classList.add('hidden');
+  document.getElementById('logout').onclick = async () => { await fetch('/api/admin/logout', {method:'POST'}); location.href = '/admin'; };
+  loadQuizzes();
+</script>
 </body>
 </html>
