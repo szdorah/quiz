@@ -112,9 +112,14 @@ app.post("/api/answers", async (req,res) => {
   try {
     const playerId = String(req.body?.playerId || "");
     const questionId = String(req.body?.questionId || "");
-    const selectedIndex = Number(req.body?.selectedIndex);
-    if (!isUuid(playerId) || !isUuid(questionId) || !Number.isInteger(selectedIndex) || selectedIndex < 0) return res.status(400).json({ok:false,error:"Hibás válaszadat."});
-    const result = await submitAnswer({playerId,questionId,selectedIndex});
+    const selectedIndexes = Array.isArray(req.body?.selectedIndexes)
+      ? req.body.selectedIndexes.map(Number)
+      : [Number(req.body?.selectedIndex)];
+    const validIndexes = selectedIndexes.filter(i => Number.isInteger(i) && i >= 0);
+    if (!isUuid(playerId) || !isUuid(questionId) || !validIndexes.length || validIndexes.length !== selectedIndexes.length) {
+      return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+    }
+    const result = await submitAnswer({playerId,questionId,selectedIndexes:[...new Set(validIndexes)]});
     if (result.error) return res.status(409).json({ok:false,error:result.error});
     io.to(`session:${req.body?.sessionId || ""}`).emit("answers:progress", {
       answeredCount:Number(result.answered_count), playerCount:Number(result.player_count)

@@ -17,7 +17,9 @@
         <div id="questionMeta" class="small" style="margin-top:24px"></div>
         <div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage" alt="Kérdés képe" /></div>
         <h1 id="prompt" class="game-question">Kérdés betöltése…</h1>
+        <div id="typeHint" class="question-type-hint hidden"></div>
         <div id="answers" class="game-answers"></div>
+        <div id="submitWrap" class="actions hidden"><button id="submitAnswer" class="btn primary" type="button">Válasz beküldése</button></div>
         <p id="status" class="small"></p>
       </div>
       <div id="resultView" class="hidden center-card">
@@ -40,14 +42,14 @@
 <script>
   const playerRaw = sessionStorage.getItem('szagri_player');
   const sessionRaw = sessionStorage.getItem('szagri_session');
-  let questionRaw = sessionStorage.getItem('szagri_question');
+  const questionRaw = sessionStorage.getItem('szagri_question');
   if (!playerRaw || !sessionRaw || !questionRaw) location.href = '/play';
 
   const player = JSON.parse(playerRaw);
   const session = JSON.parse(sessionRaw);
   const socket = io();
   let currentQuestion = null;
-  let selectedIndex = null;
+  let selectedIndexes = [];
   let submitted = false;
   let timerHandle = null;
 
@@ -58,16 +60,29 @@
   });
   socket.on('game:finished', board => showLeaderboard(board));
 
+  function isMulti(q) { return String(q?.questionType || '').toLowerCase() === 'multi_select'; }
+  function isTrueFalse(q) { return String(q?.questionType || '').toLowerCase() === 'true_false'; }
+
   function showQuestion(q) {
     currentQuestion = q;
-    selectedIndex = null;
+    selectedIndexes = [];
     submitted = false;
     document.getElementById('questionView').classList.remove('hidden');
     document.getElementById('resultView').classList.add('hidden');
     document.getElementById('leaderboardView').classList.add('hidden');
+    document.getElementById('submitWrap').classList.add('hidden');
     document.getElementById('prompt').textContent = q.prompt || 'Kérdés';
     document.getElementById('questionMeta').textContent = q.questionNumber && q.questionTotal ? `${q.questionNumber}. / ${q.questionTotal}. kérdés` : '';
-    document.getElementById('status').textContent = 'Válassz egy választ.';
+    document.getElementById('status').textContent = isMulti(q) ? 'Több válasz is helyes lehet.' : 'Válassz egy választ.';
+
+    const hint = document.getElementById('typeHint');
+    if (isMulti(q)) {
+      hint.textContent = '☑ Több helyes válasz – jelöld be mindet';
+      hint.classList.remove('hidden');
+    } else if (isTrueFalse(q)) {
+      hint.textContent = 'Igaz / hamis';
+      hint.classList.remove('hidden');
+    } else hint.classList.add('hidden');
 
     const imageWrap = document.getElementById('questionImageWrap');
     if (q.imageUrl) {
@@ -82,7 +97,8 @@
       button.type = 'button';
       button.className = 'answer-choice';
       const text = typeof option === 'string' ? option : (option.text || '');
-      button.innerHTML = `<span>${String.fromCharCode(65 + index)}</span><strong></strong>`;
+      const badge = isTrueFalse(q) ? (index === 0 ? '✓' : '×') : String.fromCharCode(65 + index);
+      button.innerHTML = `<span>${badge}</span><strong></strong>`;
       button.querySelector('strong').textContent = text;
       button.onclick = () => selectAnswer(index, button);
       answers.appendChild(button);
@@ -92,33 +108,45 @@
 
   function selectAnswer(index, button) {
     if (submitted) return;
-    selectedIndex = index;
-    document.querySelectorAll('.answer-choice').forEach(x => x.classList.remove('selected'));
-    button.classList.add('selected');
-    document.getElementById('status').innerHTML = '<button id="submitAnswer" class="btn primary" type="button">Válasz beküldése</button>';
-    document.getElementById('submitAnswer').onclick = submitAnswer;
+    if (isMulti(currentQuestion)) {
+      if (selectedIndexes.includes(index)) {
+        selectedIndexes = selectedIndexes.filter(i => i !== index);
+        button.classList.remove('selected');
+      } else {
+        selectedIndexes.push(index);
+        button.classList.add('selected');
+      }
+    } else {
+      selectedIndexes = [index];
+      document.querySelectorAll('.answer-choice').forEach(x => x.classList.remove('selected'));
+      button.classList.add('selected');
+    }
+    document.getElementById('submitWrap').classList.toggle('hidden', selectedIndexes.length === 0);
   }
 
+  document.getElementById('submitAnswer').onclick = submitAnswer;
+
   async function submitAnswer() {
-    if (submitted || selectedIndex === null) return;
+    if (submitted || !selectedIndexes.length) return;
     submitted = true;
     clearInterval(timerHandle);
     document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+    document.getElementById('submitAnswer').disabled = true;
     document.getElementById('status').textContent = 'Beküldés…';
     const res = await fetch('/api/answers', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         playerId: player.id,
         sessionId: session.id,
         questionId: currentQuestion.id,
-        selectedIndex
+        selectedIndexes
       })
     });
     const data = await res.json();
     if (!res.ok) {
       submitted = false;
       document.querySelectorAll('.answer-choice').forEach(x => x.disabled = false);
+      document.getElementById('submitAnswer').disabled = false;
       document.getElementById('status').textContent = data.error || 'Nem sikerült beküldeni.';
       return;
     }
@@ -144,6 +172,7 @@
         clearInterval(timerHandle);
         if (!submitted) {
           document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+          document.getElementById('submitWrap').classList.add('hidden');
           document.getElementById('status').textContent = 'Lejárt az idő. Várakozás a következő kérdésre…';
         }
       }
