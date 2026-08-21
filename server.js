@@ -5,7 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import QRCode from "qrcode";
-import { initDb, listQuizzes, createQuiz, startGame, beginGame, addPlayer, listPlayersBySession } from "./db.js";
+import {
+  initDb, listQuizzes, createQuiz, startGame, beginGame, addPlayer, listPlayersBySession,
+  submitAnswer, nextQuestion, leaderboard
+} from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,11 +84,57 @@ app.post("/api/games/:id/begin", requireAdminApi, async (req,res) => {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás játékazonosító."});
     const state = await beginGame(req.params.id);
-    io.to(`session:${req.params.id}`).emit("game:started", state.question);
+    io.to(`session:${req.params.id}`).emit("game:question", state.question);
     res.json({ok:true, question:state.question});
   } catch (error) {
     console.error(error);
     res.status(400).json({ok:false,error:"A játék nem indítható. Lehet, hogy már elindult."});
+  }
+});
+
+app.post("/api/games/:id/next", requireAdminApi, async (req,res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás játékazonosító."});
+    const state = await nextQuestion(req.params.id);
+    if (state.status === "finished") {
+      const board = await leaderboard(req.params.id);
+      io.to(`session:${req.params.id}`).emit("game:finished", board);
+      return res.json({ok:true, status:"finished", leaderboard:board});
+    }
+    io.to(`session:${req.params.id}`).emit("game:question", state.question);
+    res.json({ok:true, status:"running", question:state.question});
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ok:false,error:"Nem sikerült a következő kérdésre lépni."});
+  }
+});
+
+app.get("/api/games/:id/leaderboard", requireAdminApi, async (req,res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás játékazonosító."});
+    res.json({ok:true, leaderboard:await leaderboard(req.params.id)});
+  } catch (error) { console.error(error); res.status(500).json({ok:false,error:"Nem sikerült betölteni az eredményt."}); }
+});
+
+app.post("/api/answers", async (req,res) => {
+  try {
+    const playerId = String(req.body?.playerId || "");
+    const questionId = String(req.body?.questionId || "");
+    const selectedIndex = Number(req.body?.selectedIndex);
+    if (!isUuid(playerId) || !isUuid(questionId) || !Number.isInteger(selectedIndex) || selectedIndex < 0) {
+      return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+    }
+    const result = await submitAnswer({playerId, questionId, selectedIndex});
+    if (result.error) return res.status(409).json({ok:false,error:result.error});
+    const player = JSON.parse(JSON.stringify(result));
+    io.to(`session:${req.body?.sessionId || ""}`).emit("answers:progress", {
+      answeredCount: Number(result.answered_count),
+      playerCount: Number(result.player_count)
+    });
+    res.json({ok:true, result:player});
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ok:false,error:"Nem sikerült beküldeni a választ."});
   }
 });
 
