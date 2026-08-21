@@ -13,26 +13,105 @@
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
         <button id="logout" class="btn compact" type="button">Kilépés</button>
       </div>
+
       <div class="dashboard-head">
         <div>
           <span class="badge">Oktatói felület</span>
           <h1 class="page-title">Kvízeim</h1>
-          <p>Innen készíthetsz új kvízt, később pedig innen indíthatod és töltheted le az eredményeket.</p>
+          <p>Készíts kvízt, majd indíts hozzá élő játékot. A QR-kód a következő lépésben kerül az indítóképernyőre.</p>
         </div>
         <a class="btn primary" href="/admin/quiz/new">+ Új kvíz</a>
       </div>
-      <div class="empty-state">
-        <div class="empty-icon">✦</div>
-        <strong>Még nincs mentett kvíz</strong>
-        <span class="small">Készítsük el az elsőt.</span>
-      </div>
+
+      <div id="quizList"></div>
+      <p id="status" class="small"></p>
     </section>
   </main>
+
+  <div id="gameModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <span class="badge">Játék elindítva</span>
+      <h2 id="modalTitle">Kvíz</h2>
+      <div id="gameCode" class="big-code">000000</div>
+      <p>A hallgatók ezt a kódot adják meg a csatlakozási oldalon.</p>
+      <div class="join-link-box" id="joinUrl"></div>
+      <div class="actions">
+        <button id="copyLink" class="btn primary" type="button">Csatlakozási link másolása</button>
+        <button id="closeModal" class="btn" type="button">Bezárás</button>
+      </div>
+      <div id="playerCount" class="waiting-pill"><span class="pulse"></span> 0 hallgató csatlakozott</div>
+      <div id="playerList" class="player-chips"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
+    const quizList = document.getElementById('quizList');
+    const status = document.getElementById('status');
+    const modal = document.getElementById('gameModal');
+    const socket = io();
+    let currentJoinUrl = '';
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    }
+
+    async function loadQuizzes() {
+      status.textContent = 'Betöltés…';
+      const res = await fetch('/api/quizzes');
+      const data = await res.json();
+      if (!res.ok) { status.textContent = data.error || 'Nem sikerült betölteni.'; return; }
+      status.textContent = '';
+      if (!data.quizzes.length) {
+        quizList.innerHTML = `<div class="empty-state"><div class="empty-icon">✦</div><strong>Még nincs mentett kvíz</strong><span class="small">Készítsük el az elsőt.</span></div>`;
+        return;
+      }
+      quizList.innerHTML = `<div class="quiz-list">${data.quizzes.map(q => `
+        <article class="quiz-row">
+          <div>
+            <strong>${escapeHtml(q.title)}</strong>
+            <span class="small">${q.question_count} kérdés${q.description ? ' · ' + escapeHtml(q.description) : ''}</span>
+          </div>
+          <button class="btn primary compact start-game" data-id="${q.id}" data-title="${escapeHtml(q.title)}" type="button">Kvíz indítása</button>
+        </article>`).join('')}</div>`;
+      document.querySelectorAll('.start-game').forEach(btn => btn.onclick = () => startGame(btn));
+    }
+
+    async function startGame(btn) {
+      btn.disabled = true;
+      const res = await fetch(`/api/quizzes/${btn.dataset.id}/start`, {method:'POST'});
+      const data = await res.json();
+      btn.disabled = false;
+      if (!res.ok) { status.textContent = data.error || 'Nem sikerült elindítani.'; return; }
+
+      currentJoinUrl = data.joinUrl;
+      document.getElementById('modalTitle').textContent = btn.dataset.title;
+      document.getElementById('gameCode').textContent = data.session.game_code;
+      document.getElementById('joinUrl').textContent = data.joinUrl;
+      document.getElementById('playerCount').innerHTML = '<span class="pulse"></span> 0 hallgató csatlakozott';
+      document.getElementById('playerList').innerHTML = '';
+      modal.classList.remove('hidden');
+      socket.emit('session:watch', data.session.id);
+    }
+
+    socket.on('players:update', players => {
+      document.getElementById('playerCount').innerHTML = `<span class="pulse"></span> ${players.length} hallgató csatlakozott`;
+      document.getElementById('playerList').innerHTML = players.map(p => `<span class="player-chip">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</span>`).join('');
+    });
+
+    document.getElementById('copyLink').onclick = async () => {
+      if (!currentJoinUrl) return;
+      await navigator.clipboard.writeText(currentJoinUrl);
+      document.getElementById('copyLink').textContent = 'Kimásolva ✓';
+      setTimeout(() => document.getElementById('copyLink').textContent = 'Csatlakozási link másolása', 1500);
+    };
+    document.getElementById('closeModal').onclick = () => modal.classList.add('hidden');
     document.getElementById('logout').onclick = async () => {
       await fetch('/api/admin/logout', {method:'POST'});
       location.href = '/admin';
     };
+
+    loadQuizzes();
   </script>
 </body>
 </html>
