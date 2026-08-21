@@ -34,6 +34,12 @@ function isAdmin(req) { return parseCookies(req).szagri_admin === adminToken(); 
 function requireAdmin(req, res, next) { if (!isAdmin(req)) return res.redirect("/admin"); next(); }
 function requireAdminApi(req, res, next) { if (!isAdmin(req)) return res.status(401).json({ ok:false, error:"Nincs oktatói jogosultság." }); next(); }
 function isUuid(value) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value)); }
+function cleanIndexes(value) {
+  if (!Array.isArray(value)) return null;
+  const arr = value.map(Number);
+  if (!arr.length || arr.some(i => !Number.isInteger(i) || i < 0)) return null;
+  return arr;
+}
 
 app.get("/health", (_req,res) => res.json({ ok:true, service:"szagri-quiz", database:!!process.env.SUPABASE_URL }));
 app.get("/admin", (req,res) => isAdmin(req) ? res.redirect("/admin/dashboard") : res.sendFile(path.join(__dirname,"public","admin.html")));
@@ -112,14 +118,14 @@ app.post("/api/answers", async (req,res) => {
   try {
     const playerId = String(req.body?.playerId || "");
     const questionId = String(req.body?.questionId || "");
-    const selectedIndexes = Array.isArray(req.body?.selectedIndexes)
-      ? req.body.selectedIndexes.map(Number)
-      : [Number(req.body?.selectedIndex)];
-    const validIndexes = selectedIndexes.filter(i => Number.isInteger(i) && i >= 0);
-    if (!isUuid(playerId) || !isUuid(questionId) || !validIndexes.length || validIndexes.length !== selectedIndexes.length) {
+    const selectedIndexes = cleanIndexes(req.body?.selectedIndexes) || (Number.isInteger(Number(req.body?.selectedIndex)) ? [Number(req.body.selectedIndex)] : null);
+    const orderedIndexes = cleanIndexes(req.body?.orderedIndexes);
+    if (!isUuid(playerId) || !isUuid(questionId) || (!selectedIndexes && !orderedIndexes)) {
       return res.status(400).json({ok:false,error:"Hibás válaszadat."});
     }
-    const result = await submitAnswer({playerId,questionId,selectedIndexes:[...new Set(validIndexes)]});
+    if (selectedIndexes && new Set(selectedIndexes).size !== selectedIndexes.length) return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+    if (orderedIndexes && new Set(orderedIndexes).size !== orderedIndexes.length) return res.status(400).json({ok:false,error:"Hibás sorrend."});
+    const result = await submitAnswer({playerId,questionId,selectedIndexes,orderedIndexes});
     if (result.error) return res.status(409).json({ok:false,error:result.error});
     io.to(`session:${req.body?.sessionId || ""}`).emit("answers:progress", {
       answeredCount:Number(result.answered_count), playerCount:Number(result.player_count)
