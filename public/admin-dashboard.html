@@ -17,7 +17,7 @@
         <div>
           <span class="badge">Oktatói felület</span>
           <h1 class="page-title">Kvízeim</h1>
-          <p>Indíts játékot, vetítsd ki a QR-kódot, majd várd meg a hallgatókat.</p>
+          <p>Indíts játékot, vetítsd ki a QR-kódot, majd vezesd végig a kérdéseket.</p>
         </div>
         <a class="btn primary" href="/admin/quiz/new">+ Új kvíz</a>
       </div>
@@ -28,20 +28,37 @@
 
   <div id="gameModal" class="modal-backdrop hidden">
     <div class="modal-card">
-      <span class="badge">Váróterem</span>
+      <span id="gameBadge" class="badge">Váróterem</span>
       <h2 id="modalTitle">Kvíz</h2>
-      <div class="lobby-layout">
-        <div>
-          <div id="gameCode" class="big-code">000000</div>
-          <p>A hallgatók a kóddal vagy a QR-kóddal csatlakozhatnak.</p>
-          <div class="join-link-box" id="joinUrl"></div>
+
+      <div id="lobbyView">
+        <div class="lobby-layout">
+          <div>
+            <div id="gameCode" class="big-code">000000</div>
+            <p>A hallgatók a kóddal vagy a QR-kóddal csatlakozhatnak.</p>
+            <div class="join-link-box" id="joinUrl"></div>
+          </div>
+          <img id="qrCode" class="qr-code" alt="Csatlakozási QR-kód" />
         </div>
-        <img id="qrCode" class="qr-code" alt="Csatlakozási QR-kód" />
+        <div id="playerCount" class="waiting-pill"><span class="pulse"></span> 0 hallgató csatlakozott</div>
+        <div id="playerList" class="player-chips"></div>
       </div>
-      <div id="playerCount" class="waiting-pill"><span class="pulse"></span> 0 hallgató csatlakozott</div>
-      <div id="playerList" class="player-chips"></div>
+
+      <div id="runningView" class="hidden">
+        <div class="stat" style="margin-top:18px">
+          <strong id="activeQuestion">Kérdés folyamatban</strong>
+          <span id="answerProgress" class="small">0 válasz érkezett</span>
+        </div>
+      </div>
+
+      <div id="leaderboardView" class="hidden">
+        <h3>Végeredmény</h3>
+        <div id="leaderboard"></div>
+      </div>
+
       <div class="actions">
         <button id="beginGame" class="btn primary" type="button">▶ Kvíz indítása</button>
+        <button id="nextQuestion" class="btn primary hidden" type="button">Következő kérdés →</button>
         <button id="copyLink" class="btn" type="button">Link másolása</button>
         <button id="closeModal" class="btn" type="button">Bezárás</button>
       </div>
@@ -57,6 +74,7 @@
     const socket = io();
     let currentJoinUrl = '';
     let currentSessionId = '';
+    let questionNumber = 0;
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -88,6 +106,7 @@
       if (!res.ok) { status.textContent = data.error || 'Nem sikerült elindítani.'; return; }
       currentJoinUrl = data.joinUrl;
       currentSessionId = data.session.id;
+      questionNumber = 0;
       document.getElementById('modalTitle').textContent = btn.dataset.title;
       document.getElementById('gameCode').textContent = data.session.game_code;
       document.getElementById('joinUrl').textContent = data.joinUrl;
@@ -96,6 +115,12 @@
       document.getElementById('playerList').innerHTML = '';
       document.getElementById('modalStatus').textContent = '';
       document.getElementById('beginGame').disabled = false;
+      document.getElementById('beginGame').classList.remove('hidden');
+      document.getElementById('nextQuestion').classList.add('hidden');
+      document.getElementById('lobbyView').classList.remove('hidden');
+      document.getElementById('runningView').classList.add('hidden');
+      document.getElementById('leaderboardView').classList.add('hidden');
+      document.getElementById('gameBadge').textContent = 'Váróterem';
       modal.classList.remove('hidden');
       socket.emit('session:watch', currentSessionId);
     }
@@ -103,6 +128,10 @@
     socket.on('players:update', players => {
       document.getElementById('playerCount').innerHTML = `<span class="pulse"></span> ${players.length} hallgató csatlakozott`;
       document.getElementById('playerList').innerHTML = players.map(p => `<span class="player-chip">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</span>`).join('');
+    });
+
+    socket.on('answers:progress', progress => {
+      document.getElementById('answerProgress').textContent = `${progress.answeredCount} / ${progress.playerCount} válasz érkezett`;
     });
 
     document.getElementById('beginGame').onclick = async () => {
@@ -117,9 +146,53 @@
         document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült elindítani.';
         return;
       }
-      document.getElementById('modalStatus').textContent = 'Az első kérdés elküldve a hallgatóknak ✓';
-      button.textContent = 'Kvíz elindítva ✓';
+      questionNumber = 1;
+      document.getElementById('lobbyView').classList.add('hidden');
+      document.getElementById('runningView').classList.remove('hidden');
+      document.getElementById('gameBadge').textContent = 'Élő játék';
+      document.getElementById('activeQuestion').textContent = '1. kérdés folyamatban';
+      document.getElementById('answerProgress').textContent = '0 válasz érkezett';
+      document.getElementById('modalStatus').textContent = 'A kérdés elküldve a hallgatóknak.';
+      button.classList.add('hidden');
+      document.getElementById('nextQuestion').classList.remove('hidden');
     };
+
+    document.getElementById('nextQuestion').onclick = async () => {
+      if (!currentSessionId) return;
+      const button = document.getElementById('nextQuestion');
+      button.disabled = true;
+      document.getElementById('modalStatus').textContent = 'Továbblépés…';
+      const res = await fetch(`/api/games/${currentSessionId}/next`, {method:'POST'});
+      const data = await res.json();
+      button.disabled = false;
+      if (!res.ok) {
+        document.getElementById('modalStatus').textContent = data.error || 'Nem sikerült továbblépni.';
+        return;
+      }
+      if (data.status === 'finished') {
+        showLeaderboard(data.leaderboard || []);
+        return;
+      }
+      questionNumber = Number(data.question?.questionNumber || questionNumber + 1);
+      document.getElementById('activeQuestion').textContent = `${questionNumber}. kérdés folyamatban`;
+      document.getElementById('answerProgress').textContent = '0 válasz érkezett';
+      document.getElementById('modalStatus').textContent = 'A következő kérdés elküldve.';
+    };
+
+    function showLeaderboard(board) {
+      document.getElementById('runningView').classList.add('hidden');
+      document.getElementById('leaderboardView').classList.remove('hidden');
+      document.getElementById('nextQuestion').classList.add('hidden');
+      document.getElementById('copyLink').classList.add('hidden');
+      document.getElementById('gameBadge').textContent = 'Kvíz vége';
+      document.getElementById('modalStatus').textContent = '';
+      const medals = ['🥇','🥈','🥉'];
+      document.getElementById('leaderboard').innerHTML = (board || []).map((p,i) => `
+        <article class="quiz-row">
+          <strong>${medals[i] || (i+1)+'.'} ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</strong>
+          <strong>${p.score} pont</strong>
+        </article>`).join('');
+    }
 
     document.getElementById('copyLink').onclick = async () => {
       if (!currentJoinUrl) return;
