@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Kérdés – SZAGRI Quiz</title>
+  <title>Kvíz – SZAGRI Quiz</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,25 +13,70 @@
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
         <span id="timer" class="badge">30 mp</span>
       </div>
-      <div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage" alt="Kérdés képe" /></div>
-      <h1 id="prompt" class="game-question">Kérdés betöltése…</h1>
-      <div id="answers" class="game-answers"></div>
-      <p class="small">Ebben a lépésben az első kérdés megjelenítése működik. A válasz beküldését a következő körben kötjük be.</p>
+      <div id="questionView">
+        <div id="questionMeta" class="small" style="margin-top:24px"></div>
+        <div id="questionImageWrap" class="question-image-wrap hidden"><img id="questionImage" alt="Kérdés képe" /></div>
+        <h1 id="prompt" class="game-question">Kérdés betöltése…</h1>
+        <div id="answers" class="game-answers"></div>
+        <p id="status" class="small"></p>
+      </div>
+      <div id="resultView" class="hidden center-card">
+        <div id="resultIcon" class="waiting-avatar">✓</div>
+        <h2 id="resultTitle">Válasz elküldve</h2>
+        <p id="resultText"></p>
+        <div class="waiting-pill">Várakozás a következő kérdésre…</div>
+      </div>
+      <div id="leaderboardView" class="hidden">
+        <div class="center-card">
+          <div class="waiting-avatar">🏆</div>
+          <h1 class="page-title">Végeredmény</h1>
+          <p>Szép munka!</p>
+        </div>
+        <div id="leaderboard" class="quiz-list"></div>
+      </div>
     </section>
   </main>
+<script src="/socket.io/socket.io.js"></script>
 <script>
-  const raw = sessionStorage.getItem('szagri_question');
-  if (!raw) location.href = '/waiting';
-  else {
-    const q = JSON.parse(raw);
+  const playerRaw = sessionStorage.getItem('szagri_player');
+  const sessionRaw = sessionStorage.getItem('szagri_session');
+  let questionRaw = sessionStorage.getItem('szagri_question');
+  if (!playerRaw || !sessionRaw || !questionRaw) location.href = '/play';
+
+  const player = JSON.parse(playerRaw);
+  const session = JSON.parse(sessionRaw);
+  const socket = io();
+  let currentQuestion = null;
+  let selectedIndex = null;
+  let submitted = false;
+  let timerHandle = null;
+
+  socket.on('connect', () => socket.emit('session:join', session.id));
+  socket.on('game:question', q => {
+    sessionStorage.setItem('szagri_question', JSON.stringify(q));
+    showQuestion(q);
+  });
+  socket.on('game:finished', board => showLeaderboard(board));
+
+  function showQuestion(q) {
+    currentQuestion = q;
+    selectedIndex = null;
+    submitted = false;
+    document.getElementById('questionView').classList.remove('hidden');
+    document.getElementById('resultView').classList.add('hidden');
+    document.getElementById('leaderboardView').classList.add('hidden');
     document.getElementById('prompt').textContent = q.prompt || 'Kérdés';
-    const seconds = Number(q.settings?.timeLimitSeconds || 30);
-    document.getElementById('timer').textContent = `${seconds} mp`;
+    document.getElementById('questionMeta').textContent = q.questionNumber && q.questionTotal ? `${q.questionNumber}. / ${q.questionTotal}. kérdés` : '';
+    document.getElementById('status').textContent = 'Válassz egy választ.';
+
+    const imageWrap = document.getElementById('questionImageWrap');
     if (q.imageUrl) {
       document.getElementById('questionImage').src = q.imageUrl;
-      document.getElementById('questionImageWrap').classList.remove('hidden');
-    }
+      imageWrap.classList.remove('hidden');
+    } else imageWrap.classList.add('hidden');
+
     const answers = document.getElementById('answers');
+    answers.innerHTML = '';
     (q.options || []).forEach((option, index) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -39,13 +84,90 @@
       const text = typeof option === 'string' ? option : (option.text || '');
       button.innerHTML = `<span>${String.fromCharCode(65 + index)}</span><strong></strong>`;
       button.querySelector('strong').textContent = text;
-      button.onclick = () => {
-        document.querySelectorAll('.answer-choice').forEach(x => x.classList.remove('selected'));
-        button.classList.add('selected');
-      };
+      button.onclick = () => selectAnswer(index, button);
       answers.appendChild(button);
     });
+    startTimer(Number(q.settings?.timeLimitSeconds || 30));
   }
+
+  function selectAnswer(index, button) {
+    if (submitted) return;
+    selectedIndex = index;
+    document.querySelectorAll('.answer-choice').forEach(x => x.classList.remove('selected'));
+    button.classList.add('selected');
+    document.getElementById('status').innerHTML = '<button id="submitAnswer" class="btn primary" type="button">Válasz beküldése</button>';
+    document.getElementById('submitAnswer').onclick = submitAnswer;
+  }
+
+  async function submitAnswer() {
+    if (submitted || selectedIndex === null) return;
+    submitted = true;
+    clearInterval(timerHandle);
+    document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+    document.getElementById('status').textContent = 'Beküldés…';
+    const res = await fetch('/api/answers', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        playerId: player.id,
+        sessionId: session.id,
+        questionId: currentQuestion.id,
+        selectedIndex
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      submitted = false;
+      document.querySelectorAll('.answer-choice').forEach(x => x.disabled = false);
+      document.getElementById('status').textContent = data.error || 'Nem sikerült beküldeni.';
+      return;
+    }
+    const r = data.result;
+    player.score = Number(r.total_score || player.score || 0);
+    sessionStorage.setItem('szagri_player', JSON.stringify(player));
+    document.getElementById('questionView').classList.add('hidden');
+    document.getElementById('resultView').classList.remove('hidden');
+    document.getElementById('resultIcon').textContent = r.is_correct ? '✓' : '×';
+    document.getElementById('resultTitle').textContent = r.is_correct ? 'Helyes válasz!' : 'Válasz elküldve';
+    document.getElementById('resultText').textContent = r.is_correct ? `+${r.points_awarded} pont · Összesen ${r.total_score} pont` : `Most 0 pont · Összesen ${r.total_score} pont`;
+  }
+
+  function startTimer(seconds) {
+    clearInterval(timerHandle);
+    let left = seconds;
+    const timer = document.getElementById('timer');
+    timer.textContent = `${left} mp`;
+    timerHandle = setInterval(() => {
+      left -= 1;
+      timer.textContent = `${Math.max(left,0)} mp`;
+      if (left <= 0) {
+        clearInterval(timerHandle);
+        if (!submitted) {
+          document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+          document.getElementById('status').textContent = 'Lejárt az idő. Várakozás a következő kérdésre…';
+        }
+      }
+    }, 1000);
+  }
+
+  function showLeaderboard(board) {
+    clearInterval(timerHandle);
+    document.getElementById('questionView').classList.add('hidden');
+    document.getElementById('resultView').classList.add('hidden');
+    document.getElementById('leaderboardView').classList.remove('hidden');
+    const medals = ['🥇','🥈','🥉'];
+    document.getElementById('leaderboard').innerHTML = (board || []).map((p,i) => `
+      <article class="quiz-row">
+        <div><strong>${medals[i] || (i+1)+'.'} ${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</strong></div>
+        <strong>${p.score} pont</strong>
+      </article>`).join('');
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+
+  showQuestion(JSON.parse(questionRaw));
 </script>
 </body>
 </html>
