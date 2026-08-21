@@ -37,7 +37,7 @@ function isUuid(value) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab
 function cleanIndexes(value) {
   if (!Array.isArray(value)) return null;
   const arr = value.map(Number);
-  if (!arr.length || arr.some(i => !Number.isInteger(i) || i < 0)) return null;
+  if (!arr.length || arr.some(i => !Number.isInteger(i) || i < 0) || new Set(arr).size !== arr.length) return null;
   return arr;
 }
 
@@ -81,10 +81,7 @@ app.delete("/api/quizzes/:id", requireAdminApi, async (req,res) => {
     if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});
     await deleteQuiz(req.params.id);
     res.json({ok:true});
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ok:false,error:"Nem sikerült törölni a kvízt."});
-  }
+  } catch (error) { console.error(error); res.status(500).json({ok:false,error:"Nem sikerült törölni a kvízt."}); }
 });
 
 app.post("/api/quizzes/:id/start", requireAdminApi, async (req,res) => {
@@ -129,14 +126,18 @@ app.post("/api/answers", async (req,res) => {
   try {
     const playerId = String(req.body?.playerId || "");
     const questionId = String(req.body?.questionId || "");
-    const selectedIndexes = cleanIndexes(req.body?.selectedIndexes) || (Number.isInteger(Number(req.body?.selectedIndex)) ? [Number(req.body.selectedIndex)] : null);
-    const orderedIndexes = cleanIndexes(req.body?.orderedIndexes);
-    if (!isUuid(playerId) || !isUuid(questionId) || (!selectedIndexes && !orderedIndexes)) {
-      return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+    if (!isUuid(playerId) || !isUuid(questionId)) return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+
+    let answer = req.body?.answer;
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer)) {
+      const selectedIndexes = cleanIndexes(req.body?.selectedIndexes) || (Number.isInteger(Number(req.body?.selectedIndex)) ? [Number(req.body.selectedIndex)] : null);
+      const orderedIndexes = cleanIndexes(req.body?.orderedIndexes);
+      if (orderedIndexes) answer = { orderedIndexes };
+      else if (selectedIndexes) answer = { selectedIndexes };
     }
-    if (selectedIndexes && new Set(selectedIndexes).size !== selectedIndexes.length) return res.status(400).json({ok:false,error:"Hibás válaszadat."});
-    if (orderedIndexes && new Set(orderedIndexes).size !== orderedIndexes.length) return res.status(400).json({ok:false,error:"Hibás sorrend."});
-    const result = await submitAnswer({playerId,questionId,selectedIndexes,orderedIndexes});
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return res.status(400).json({ok:false,error:"Hibás válaszadat."});
+
+    const result = await submitAnswer({playerId,questionId,answer});
     if (result.error) return res.status(409).json({ok:false,error:result.error});
     io.to(`session:${req.body?.sessionId || ""}`).emit("answers:progress", {
       answeredCount:Number(result.answered_count), playerCount:Number(result.player_count)
