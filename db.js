@@ -62,21 +62,23 @@ export async function beginGame(gameId) {
 export async function getGameState(gameId) {
   const row = first(await rpc("api_get_game_state", { p_game_id: gameId }));
   if (!row) return null;
-  return {
-    status: row.status,
-    question: row.question_id ? normalizeQuestion(row) : null,
-  };
+  return { status: row.status, question: row.question_id ? normalizeQuestion(row) : null };
 }
 
-export async function submitAnswer({ playerId, questionId, selectedIndex }) {
+export async function submitAnswer({ playerId, questionId, selectedIndexes }) {
   try {
-    const row = first(await rpc("api_submit_answer", { p_player_id: playerId, p_question_id: questionId, p_selected_index: selectedIndex }));
+    const row = first(await rpc("api_submit_answer_v2", {
+      p_player_id: playerId,
+      p_question_id: questionId,
+      p_selected_indexes: selectedIndexes,
+    }));
     return { ok: true, ...row };
   } catch (error) {
     const message = String(error.message || "");
     if (message.includes("already_answered")) return { error: "Erre a kérdésre már válaszoltál." };
     if (message.includes("question_not_active")) return { error: "Ez a kérdés már nem aktív." };
     if (message.includes("game_not_running")) return { error: "A játék jelenleg nem fut." };
+    if (message.includes("answer_required")) return { error: "Válassz legalább egy választ." };
     throw error;
   }
 }
