@@ -31,6 +31,7 @@ function normalizeQuestion(row, number = null) {
 
 export async function initDb() { await rpc("api_list_quizzes"); }
 export async function listQuizzes() { return (await rpc("api_list_quizzes")) || []; }
+export async function deleteQuiz(quizId) { return await rpc("api_delete_quiz", { p_quiz_id: quizId }); }
 
 export async function createQuiz({ title, description = "", questions = [] }) {
   const normalized = questions.map(q => {
