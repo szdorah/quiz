@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Oktatói felület – SZAGRI Quiz</title>
+  <title>Oktatói belépés – SZAGRI Quiz</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,17 +13,32 @@
         <div class="brand"><div class="logo">Q</div><span>SZAGRI Quiz</span></div>
         <span class="badge">Oktató</span>
       </div>
-      <h1 style="font-size:2.6rem;margin-top:34px">Oktatói felület</h1>
-      <p>Ez az első projektváz. A következő lépésben ide kerül a valódi belépés, a Kvízeim, az Új kvíz és az Eredmények felület.</p>
-      <div class="grid" style="margin-top:24px">
-        <div class="stat"><strong>Kvízeim</strong><span class="small">Mentett kvízek és indítás</span></div>
-        <div class="stat"><strong>Új kvíz</strong><span class="small">Kérdések szerkesztése</span></div>
-        <div class="stat"><strong>Eredmények</strong><span class="small">CSV / Excel export</span></div>
-      </div>
-      <div class="actions">
-        <a class="btn" href="/">Vissza a kezdőlapra</a>
-      </div>
+      <h1 class="page-title">Oktatói belépés</h1>
+      <p>Lépj be a kvízek létrehozásához, indításához és az eredmények megtekintéséhez.</p>
+      <form id="loginForm">
+        <label for="password">Jelszó</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="Oktatói jelszó" required />
+        <div class="actions">
+          <button class="btn primary" type="submit">Belépés</button>
+          <a class="btn" href="/">Vissza</a>
+        </div>
+        <p id="status" class="small"></p>
+      </form>
     </section>
   </main>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('status');
+      status.textContent = 'Belépés…';
+      const res = await fetch('/api/admin/login', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({password: document.getElementById('password').value})
+      });
+      const data = await res.json();
+      if (!res.ok) { status.textContent = data.error || 'Sikertelen belépés.'; return; }
+      location.href = '/admin/dashboard';
+    });
+  </script>
 </body>
 </html>
