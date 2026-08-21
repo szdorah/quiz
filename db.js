@@ -88,7 +88,7 @@ export async function getGameState(gameId) {
 }
 export async function submitAnswer({ playerId, questionId, answer }) {
   try {
-    const row = first(await rpc("api_submit_answer_v6", { p_player_id: playerId, p_question_id: questionId, p_answer: answer }));
+    const row = first(await rpc("api_submit_answer_v7", { p_player_id: playerId, p_question_id: questionId, p_answer: answer }));
     return { ok: true, ...row };
   } catch (error) {
     const message = String(error.message || "");
