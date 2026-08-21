@@ -60,8 +60,59 @@
   });
   socket.on('game:finished', board => showLeaderboard(board));
 
-  function isMulti(q) { return String(q?.questionType || '').toLowerCase() === 'multi_select'; }
-  function isTrueFalse(q) { return String(q?.questionType || '').toLowerCase() === 'true_false'; }
+  function questionType(q) { return String(q?.questionType || '').toLowerCase(); }
+  function isMulti(q) { return questionType(q) === 'multi_select'; }
+  function isTrueFalse(q) { return questionType(q) === 'true_false'; }
+  function isOrdering(q) { return questionType(q) === 'ordering'; }
+
+  function shuffled(items) {
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    if (copy.length > 1 && copy.every((x, i) => x.originalIndex === i)) {
+      [copy[0], copy[1]] = [copy[1], copy[0]];
+    }
+    return copy;
+  }
+
+  function enablePointerSort(container) {
+    let dragged = null;
+    let pointerId = null;
+    container.onpointerdown = e => {
+      if (submitted) return;
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+      dragged = handle.closest('.sortable-item');
+      pointerId = e.pointerId;
+      handle.setPointerCapture?.(pointerId);
+      dragged.classList.add('dragging');
+      e.preventDefault();
+    };
+    container.onpointermove = e => {
+      if (!dragged || e.pointerId !== pointerId || submitted) return;
+      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.sortable-item');
+      if (!target || target === dragged || target.parentElement !== container) return;
+      const rect = target.getBoundingClientRect();
+      container.insertBefore(dragged, e.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      renumberOrdering(container);
+    };
+    const stop = e => {
+      if (!dragged || (e.pointerId != null && e.pointerId !== pointerId)) return;
+      dragged.classList.remove('dragging');
+      dragged = null;
+      pointerId = null;
+    };
+    container.onpointerup = stop;
+    container.onpointercancel = stop;
+  }
+
+  function renumberOrdering(container) {
+    [...container.querySelectorAll('.ordering-item')].forEach((row, i) => {
+      row.querySelector('.ordering-position').textContent = String(i + 1);
+    });
+  }
 
   function showQuestion(q) {
     currentQuestion = q;
@@ -71,9 +122,9 @@
     document.getElementById('resultView').classList.add('hidden');
     document.getElementById('leaderboardView').classList.add('hidden');
     document.getElementById('submitWrap').classList.add('hidden');
+    document.getElementById('submitAnswer').disabled = false;
     document.getElementById('prompt').textContent = q.prompt || 'Kérdés';
     document.getElementById('questionMeta').textContent = q.questionNumber && q.questionTotal ? `${q.questionNumber}. / ${q.questionTotal}. kérdés` : '';
-    document.getElementById('status').textContent = isMulti(q) ? 'Több válasz is helyes lehet.' : 'Válassz egy választ.';
 
     const hint = document.getElementById('typeHint');
     if (isMulti(q)) {
@@ -81,6 +132,9 @@
       hint.classList.remove('hidden');
     } else if (isTrueFalse(q)) {
       hint.textContent = 'Igaz / hamis';
+      hint.classList.remove('hidden');
+    } else if (isOrdering(q)) {
+      hint.textContent = '↕ Fogd meg a ☰ jelet, és húzd a válaszokat a helyes sorrendbe';
       hint.classList.remove('hidden');
     } else hint.classList.add('hidden');
 
@@ -92,22 +146,43 @@
 
     const answers = document.getElementById('answers');
     answers.innerHTML = '';
-    (q.options || []).forEach((option, index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'answer-choice';
-      const text = typeof option === 'string' ? option : (option.text || '');
-      const badge = isTrueFalse(q) ? (index === 0 ? '✓' : '×') : String.fromCharCode(65 + index);
-      button.innerHTML = `<span>${badge}</span><strong></strong>`;
-      button.querySelector('strong').textContent = text;
-      button.onclick = () => selectAnswer(index, button);
-      answers.appendChild(button);
-    });
+
+    if (isOrdering(q)) {
+      answers.className = 'ordering-list';
+      const items = shuffled((q.options || []).map((option, originalIndex) => ({ option, originalIndex })));
+      items.forEach(({ option, originalIndex }) => {
+        const row = document.createElement('div');
+        row.className = 'ordering-item sortable-item';
+        row.dataset.index = originalIndex;
+        const text = typeof option === 'string' ? option : (option.text || '');
+        row.innerHTML = '<span class="ordering-position"></span><strong></strong><span class="drag-handle" aria-label="Húzás">☰</span>';
+        row.querySelector('strong').textContent = text;
+        answers.appendChild(row);
+      });
+      renumberOrdering(answers);
+      enablePointerSort(answers);
+      document.getElementById('submitWrap').classList.remove('hidden');
+      document.getElementById('status').textContent = 'Rendezd sorba az elemeket, majd küldd be.';
+    } else {
+      answers.className = 'game-answers';
+      (q.options || []).forEach((option, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'answer-choice';
+        const text = typeof option === 'string' ? option : (option.text || '');
+        const badge = isTrueFalse(q) ? (index === 0 ? '✓' : '×') : String.fromCharCode(65 + index);
+        button.innerHTML = `<span>${badge}</span><strong></strong>`;
+        button.querySelector('strong').textContent = text;
+        button.onclick = () => selectAnswer(index, button);
+        answers.appendChild(button);
+      });
+      document.getElementById('status').textContent = isMulti(q) ? 'Több válasz is helyes lehet.' : 'Válassz egy választ.';
+    }
     startTimer(Number(q.settings?.timeLimitSeconds || 30));
   }
 
   function selectAnswer(index, button) {
-    if (submitted) return;
+    if (submitted || isOrdering(currentQuestion)) return;
     if (isMulti(currentQuestion)) {
       if (selectedIndexes.includes(index)) {
         selectedIndexes = selectedIndexes.filter(i => i !== index);
@@ -127,25 +202,35 @@
   document.getElementById('submitAnswer').onclick = submitAnswer;
 
   async function submitAnswer() {
-    if (submitted || !selectedIndexes.length) return;
+    if (submitted) return;
+    const payload = {
+      playerId: player.id,
+      sessionId: session.id,
+      questionId: currentQuestion.id
+    };
+    if (isOrdering(currentQuestion)) {
+      payload.orderedIndexes = [...document.querySelectorAll('.ordering-item')].map(row => Number(row.dataset.index));
+      if (!payload.orderedIndexes.length) return;
+    } else {
+      if (!selectedIndexes.length) return;
+      payload.selectedIndexes = selectedIndexes;
+    }
+
     submitted = true;
     clearInterval(timerHandle);
     document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+    document.getElementById('answers').classList.add('answer-locked');
     document.getElementById('submitAnswer').disabled = true;
     document.getElementById('status').textContent = 'Beküldés…';
+
     const res = await fetch('/api/answers', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        playerId: player.id,
-        sessionId: session.id,
-        questionId: currentQuestion.id,
-        selectedIndexes
-      })
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) {
       submitted = false;
       document.querySelectorAll('.answer-choice').forEach(x => x.disabled = false);
+      document.getElementById('answers').classList.remove('answer-locked');
       document.getElementById('submitAnswer').disabled = false;
       document.getElementById('status').textContent = data.error || 'Nem sikerült beküldeni.';
       return;
@@ -171,7 +256,9 @@
       if (left <= 0) {
         clearInterval(timerHandle);
         if (!submitted) {
+          submitted = true;
           document.querySelectorAll('.answer-choice').forEach(x => x.disabled = true);
+          document.getElementById('answers').classList.add('answer-locked');
           document.getElementById('submitWrap').classList.add('hidden');
           document.getElementById('status').textContent = 'Lejárt az idő. Várakozás a következő kérdésre…';
         }
