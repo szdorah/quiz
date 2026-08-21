@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import QRCode from "qrcode";
 import {
-  initDb, listQuizzes, createQuiz, startGame, beginGame, getGameState,
+  initDb, listQuizzes, createQuiz, deleteQuiz, startGame, beginGame, getGameState,
   addPlayer, listPlayersBySession, submitAnswer, nextQuestion, leaderboard
 } from "./db.js";
 
@@ -74,6 +74,17 @@ app.post("/api/quizzes", requireAdminApi, async (req,res) => {
     if (questions.some(q => !String(q.questionText || "").trim())) return res.status(400).json({ok:false,error:"Minden kérdésnek legyen szövege."});
     res.json({ok:true, quiz:await createQuiz({title,description,questions})});
   } catch (error) { console.error(error); res.status(500).json({ok:false,error:"Nem sikerült elmenteni a kvízt."}); }
+});
+
+app.delete("/api/quizzes/:id", requireAdminApi, async (req,res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});
+    await deleteQuiz(req.params.id);
+    res.json({ok:true});
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ok:false,error:"Nem sikerült törölni a kvízt."});
+  }
 });
 
 app.post("/api/quizzes/:id/start", requireAdminApi, async (req,res) => {
