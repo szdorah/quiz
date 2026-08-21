@@ -1,6 +1,6 @@
 {
   "name": "szagri-quiz",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Lightweight realtime classroom quiz platform",
   "type": "module",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "pg": "^8.13.1",
     "socket.io": "^4.8.1"
   }
 }
