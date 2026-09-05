@@ -9,8 +9,7 @@ import * as XLSX from "xlsx";
 import {
   initDb, listQuizzes, getQuiz, createQuiz, updateQuiz, deleteQuiz, duplicateQuiz,
   startGame, beginGame, getGameState, addPlayer, listPlayersBySession, submitAnswer,
-  nextQuestion, leaderboard, answerDistribution, archiveGame, listArchives, getArchive,
-  getSurvey, submitSurveyResponse, listSurveyResponses
+  nextQuestion, leaderboard, answerDistribution, archiveGame, listArchives, getArchive
 } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,7 +34,6 @@ function isAdmin(req) { return parseCookies(req).szagri_admin === adminToken(); 
 function requireAdmin(req,res,next) { if (!isAdmin(req)) return res.redirect("/admin"); next(); }
 function requireAdminApi(req,res,next) { if (!isAdmin(req)) return res.status(401).json({ok:false,error:"Nincs oktatói jogosultság."}); next(); }
 function isUuid(v) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v)); }
-function safeSlug(v) { return /^[a-z0-9][a-z0-9-]{1,79}$/.test(String(v||"")); }
 function quizPayload(body) {
   return { title:String(body?.title||"").trim(), description:String(body?.description||"").trim(), questions:Array.isArray(body?.questions)?body.questions:[] };
 }
@@ -45,27 +43,11 @@ function validateQuiz(data) {
   if (data.questions.some(q => !String(q.questionText || q.prompt || "").trim())) return "Minden kérdésnek legyen szövege.";
   return null;
 }
-function validateSurveyAnswers(survey, answers) {
-  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return "Hibás válaszadat.";
-  const questions=Array.isArray(survey?.questions)?survey.questions:[];
-  for (const q of questions) {
-    const v=answers[q.id];
-    if (q.required) {
-      if (q.type==="multi" && (!Array.isArray(v)||!v.length)) return `Hiányzó válasz: ${q.label}`;
-      if (q.type!=="multi" && !String(v??"").trim()) return `Hiányzó válasz: ${q.label}`;
-    }
-    if (Array.isArray(v) && v.length>20) return "Túl sok válaszérték.";
-    if (!Array.isArray(v) && String(v??"").length>1200) return "Túl hosszú válasz.";
-  }
-  return null;
-}
 
 app.get("/health", (_req,res)=>res.json({ok:true,service:"szagri-quiz",database:!!process.env.SUPABASE_URL}));
 app.get("/admin", (req,res)=>isAdmin(req)?res.redirect("/admin/dashboard"):res.sendFile(path.join(__dirname,"public","admin.html")));
 app.get("/admin/dashboard", requireAdmin, (_req,res)=>res.sendFile(path.join(__dirname,"public","admin-dashboard.html")));
 app.get(["/admin/quiz/new","/admin/quiz/edit"], requireAdmin, (_req,res)=>res.sendFile(path.join(__dirname,"public","quiz-new.html")));
-app.get("/admin/survey/:slug", requireAdmin, (req,res)=>safeSlug(req.params.slug)?res.sendFile(path.join(__dirname,"public","survey-admin.html")):res.status(404).end());
-app.get("/survey/:slug", (req,res)=>safeSlug(req.params.slug)?res.sendFile(path.join(__dirname,"public","survey.html")):res.status(404).end());
 app.get("/play", (_req,res)=>res.sendFile(path.join(__dirname,"public","play.html")));
 app.get("/waiting", (_req,res)=>res.sendFile(path.join(__dirname,"public","waiting.html")));
 app.get("/game", (_req,res)=>res.sendFile(path.join(__dirname,"public","game.html")));
@@ -82,24 +64,6 @@ app.post("/api/quizzes", requireAdminApi, async (req,res)=>{try{const d=quizPayl
 app.put("/api/quizzes/:id", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});const d=quizPayload(req.body),err=validateQuiz(d);if(err)return res.status(400).json({ok:false,error:err});res.json({ok:true,quiz:await updateQuiz(req.params.id,d)});}catch(e){console.error(e);const m=String(e.message||"");res.status(m.includes("active")?409:500).json({ok:false,error:m.includes("active")?"Futó vagy várakozó játék mellett a kvíz nem szerkeszthető.":"Nem sikerült módosítani a kvízt."});}});
 app.post("/api/quizzes/:id/duplicate", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});res.json({ok:true,id:await duplicateQuiz(req.params.id)});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült másolni a kvízt."});}});
 app.delete("/api/quizzes/:id", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});await deleteQuiz(req.params.id);res.json({ok:true});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült törölni a kvízt."});}});
-
-app.get("/api/surveys/:slug", async (req,res)=>{
-  try{if(!safeSlug(req.params.slug))return res.status(400).json({ok:false,error:"Hibás kérdőívazonosító."});const survey=await getSurvey(req.params.slug);if(!survey)return res.status(404).json({ok:false,error:"A kérdőív nem található vagy már nem aktív."});res.json({ok:true,survey});}
-  catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült betölteni a kérdőívet."});}
-});
-app.post("/api/surveys/:slug/responses", async (req,res)=>{
-  try{if(!safeSlug(req.params.slug))return res.status(400).json({ok:false,error:"Hibás kérdőívazonosító."});const survey=await getSurvey(req.params.slug);if(!survey)return res.status(404).json({ok:false,error:"A kérdőív nem található vagy már lezárult."});const err=validateSurveyAnswers(survey,req.body?.answers);if(err)return res.status(400).json({ok:false,error:err});const result=await submitSurveyResponse(req.params.slug,req.body.answers);res.json({ok:true,result});}
-  catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült elmenteni a válaszokat."});}
-});
-app.get("/api/admin/surveys/:slug", requireAdminApi, async (req,res)=>{
-  try{const survey=await getSurvey(req.params.slug);if(!survey)return res.status(404).json({ok:false,error:"A kérdőív nem található."});res.json({ok:true,survey});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült betölteni a kérdőívet."});}
-});
-app.get("/api/admin/surveys/:slug/responses", requireAdminApi, async (req,res)=>{
-  try{res.json({ok:true,responses:await listSurveyResponses(req.params.slug)});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült betölteni a válaszokat."});}
-});
-app.get("/api/admin/surveys/:slug/xlsx", requireAdminApi, async (req,res)=>{
-  try{const survey=await getSurvey(req.params.slug),responses=await listSurveyResponses(req.params.slug);if(!survey)return res.status(404).end();const qs=Array.isArray(survey.questions)?survey.questions:[];const rows=responses.map((r,i)=>{const row={Sorszám:i+1,Beküldve:r.submitted_at};for(const q of qs){const v=r.answers?.[q.id];row[q.label]=Array.isArray(v)?v.join(", "):v??"";}return row;});const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Válaszok");const buf=XLSX.write(wb,{type:"buffer",bookType:"xlsx"});res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");res.setHeader("Content-Disposition",`attachment; filename="${req.params.slug}_valaszok.xlsx"`);res.send(buf);}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült elkészíteni az Excel-fájlt."});}
-});
 
 app.post("/api/quizzes/:id/start", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});const session=await startGame(req.params.id);const joinUrl=`${req.protocol}://${req.get("host")}/play?code=${session.game_code}`;const qrDataUrl=await QRCode.toDataURL(joinUrl,{width:320,margin:1});res.json({ok:true,session,joinUrl,qrDataUrl});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült elindítani a kvízt."});}});
 app.post("/api/games/:id/begin", requireAdminApi, async (req,res)=>{try{const state=await beginGame(req.params.id);io.to(`session:${req.params.id}`).emit("game:question",state.question);res.json({ok:true,question:state.question});}catch(e){console.error(e);res.status(400).json({ok:false,error:"A játék nem indítható."});}});
@@ -129,7 +93,7 @@ app.get("/api/results/:id/xlsx", requireAdminApi, async (req,res)=>{
     const summary=[{Kvíz:a.quizTitle||"",Kód:a.code||"",Kezdés:a.startedAt||"",Befejezés:a.endedAt||"",Résztvevők:players.length}];
     const students=players.map((p,i)=>({Helyezés:i+1,Név:p.name,Emoji:p.emoji,Pont:p.score}));
     const qMap=new Map(questions.map(q=>[q.id,q]));
-    const answers=[]; for(const p of players) for(const x of (p.answers||[])){const q=qMap.get(x.questionId)||{};answers.push({Név:p.name,Kérdés_sorszáma:Number(q.position??0)+1,Kérdés:q.prompt||"",Típus:q.questionType||"",Válasz:JSON.stringify(x.answer||{}),Helyes:x.isCorrect?"Igen":"Nem / részben",Pont:x.scoreAwarded??0});}
+    const answers=[]; for(const p of players) for(const x of (p.answers||[])){const q=qMap.get(x.questionId)||{};const poll=!!q.settings?.poll;let value=x.answer||{};if(poll&&q.questionType==='text_response')value=value.text||'';else if(poll&&Array.isArray(value.selectedIndexes))value=value.selectedIndexes.map(i=>q.options?.[i]?.text??q.options?.[i]??i).join(', ');answers.push({Név:p.name,Kérdés_sorszáma:Number(q.position??0)+1,Kérdés:q.prompt||"",Típus:q.questionType||"",Válasz:typeof value==='string'?value:JSON.stringify(value),Helyes:poll?'':(x.isCorrect?'Igen':'Nem / részben'),Pont:poll?'':(x.scoreAwarded??0)});}
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),"Összesítés");
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(students),"Hallgatók");
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(answers),"Válaszok kérdésenként");
@@ -143,5 +107,5 @@ io.on("connection",socket=>{
   socket.on("session:join",async id=>{if(!isUuid(id))return;socket.join(`session:${id}`);try{const s=await getGameState(id);if(s?.status==="running"&&s.question)socket.emit("game:question",s.question);if(s?.status==="finished")socket.emit("game:finished",await leaderboard(id));}catch(e){console.error(e);}});
 });
 
-async function start(){try{await initDb();server.listen(PORT,"0.0.0.0",()=>console.log(`SZAGRI Quiz running on port ${PORT}`));}catch(e){console.error("Database initialization failed",e);process.exit(1);}}
+async function start(){try{await initDb();server.listen(PORT,"0.0.0.0",()=>console.log(`BME Tesztek - SzD running on port ${PORT}`));}catch(e){console.error("Database initialization failed",e);process.exit(1);}}
 start();
