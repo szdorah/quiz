@@ -125,16 +125,5 @@ export async function addPlayer({ code, name, emoji }) {
     throw error;
   }
 }
-export async function listPlayersBySession(sessionId) { return (await rpc("api_list_players", { p_game_id: sessionId })) || []; }
-
-export async function getSurvey(slug) {
-  return first(await rpc("api_get_survey", { p_slug: slug }));
-}
-
-export async function submitSurveyResponse(slug, answers) {
-  return first(await rpc("api_submit_survey_response", { p_slug: slug, p_answers: answers }));
-}
-
-export async function listSurveyResponses(slug) {
-  return (await rpc("api_list_survey_responses", { p_slug: slug })) || [];
+export async function listPlayersBySession(sessionId) { return (await rpc("api_list_players", { p_game_id: sessionId })) || [];
 }
