@@ -88,12 +88,13 @@ app.get("/api/results", requireAdminApi, async (_req,res)=>{try{res.json({ok:tru
 app.get("/api/results/:id", requireAdminApi, async (req,res)=>{try{res.json({ok:true,result:await getArchive(req.params.id)});}catch(e){res.status(404).json({ok:false,error:"Az eredmény nem található."});}});
 app.get("/api/results/:id/xlsx", requireAdminApi, async (req,res)=>{
   try {
-    const a=await getArchive(req.params.id),players=Array.isArray(a.players)?a.players:[],questions=Array.isArray(a.questions)?a.questions:[];
+    const a=await getArchive(req.params.id),players=Array.isArray(a.players)?a.players:[],questions=Array.isArray(a.questions)?a.questions:[],anonymousAnswers=Array.isArray(a.anonymousAnswers)?a.anonymousAnswers:[];
     const wb=XLSX.utils.book_new();
     const summary=[{Kvíz:a.quizTitle||"",Kód:a.code||"",Kezdés:a.startedAt||"",Befejezés:a.endedAt||"",Résztvevők:players.length}];
     const students=players.map((p,i)=>({Helyezés:i+1,Név:p.name,Emoji:p.emoji,Pont:p.score}));
     const qMap=new Map(questions.map(q=>[q.id,q]));
     const answers=[]; for(const p of players) for(const x of (p.answers||[])){const q=qMap.get(x.questionId)||{};const poll=!!q.settings?.poll;let value=x.answer||{};if(poll&&q.questionType==='text_response')value=value.text||'';else if(poll&&Array.isArray(value.selectedIndexes))value=value.selectedIndexes.map(i=>q.options?.[i]?.text??q.options?.[i]??i).join(', ');answers.push({Név:p.name,Kérdés_sorszáma:Number(q.position??0)+1,Kérdés:q.prompt||"",Típus:q.questionType||"",Válasz:typeof value==='string'?value:JSON.stringify(value),Helyes:poll?'':(x.isCorrect?'Igen':'Nem / részben'),Pont:poll?'':(x.scoreAwarded??0)});}
+    for(const x of anonymousAnswers){const q=qMap.get(x.questionId)||{};let value=x.answer||{};if(q.questionType==='text_response')value=value.text||'';else if(Array.isArray(value.selectedIndexes))value=value.selectedIndexes.map(i=>q.options?.[i]?.text??q.options?.[i]??i).join(', ');answers.push({Név:'ANONIM',Kérdés_sorszáma:Number(q.position??0)+1,Kérdés:q.prompt||"",Típus:q.questionType||"",Válasz:typeof value==='string'?value:JSON.stringify(value),Helyes:'',Pont:''});}
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),"Összesítés");
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(students),"Hallgatók");
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(answers),"Válaszok kérdésenként");
