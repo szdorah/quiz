@@ -8,7 +8,7 @@ import QRCode from "qrcode";
 import * as XLSX from "xlsx";
 import {
   initDb, listQuizzes, getQuiz, createQuiz, updateQuiz, deleteQuiz, duplicateQuiz,
-  startGame, beginGame, getGameState, addPlayer, listPlayersBySession, submitAnswer,
+  startGame, beginGame, getGameState, closeGame, addPlayer, listPlayersBySession, submitAnswer,
   nextQuestion, leaderboard, answerDistribution, archiveGame, listArchives, getArchive
 } from "./db.js";
 
@@ -68,6 +68,7 @@ app.delete("/api/quizzes/:id", requireAdminApi, async (req,res)=>{try{if(!isUuid
 app.post("/api/quizzes/:id/start", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás kvízazonosító."});const session=await startGame(req.params.id);const joinUrl=`${req.protocol}://${req.get("host")}/play?code=${session.game_code}`;const qrDataUrl=await QRCode.toDataURL(joinUrl,{width:320,margin:1});res.json({ok:true,session,joinUrl,qrDataUrl});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült elindítani a kvízt."});}});
 app.post("/api/games/:id/begin", requireAdminApi, async (req,res)=>{try{const state=await beginGame(req.params.id);io.to(`session:${req.params.id}`).emit("game:question",state.question);res.json({ok:true,question:state.question});}catch(e){console.error(e);res.status(400).json({ok:false,error:"A játék nem indítható."});}});
 app.post("/api/games/:id/next", requireAdminApi, async (req,res)=>{try{const state=await nextQuestion(req.params.id);if(state.status==="finished"){const board=await leaderboard(req.params.id);await archiveGame(req.params.id);io.to(`session:${req.params.id}`).emit("game:finished",board);return res.json({ok:true,status:"finished",leaderboard:board});}io.to(`session:${req.params.id}`).emit("game:question",state.question);res.json({ok:true,status:"running",question:state.question});}catch(e){console.error(e);res.status(400).json({ok:false,error:"Nem sikerült a következő kérdésre lépni."});}});
+app.post("/api/games/:id/close", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás játékazonosító."});await closeGame(req.params.id);let board=[];try{board=await leaderboard(req.params.id);}catch{}try{await archiveGame(req.params.id);}catch(e){console.error(e);}io.to(`session:${req.params.id}`).emit("game:finished",board);res.json({ok:true,status:"finished",leaderboard:board});}catch(e){console.error(e);res.status(400).json({ok:false,error:"Nem sikerült lezárni a játékot."});}});
 app.get("/api/games/:id/leaderboard", requireAdminApi, async (req,res)=>{try{res.json({ok:true,leaderboard:await leaderboard(req.params.id)});}catch(e){res.status(500).json({ok:false,error:"Nem sikerült betölteni az eredményt."});}});
 
 app.post("/api/answers", async (req,res)=>{
