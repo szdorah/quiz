@@ -9,7 +9,8 @@ import * as XLSX from "xlsx";
 import {
   initDb, listQuizzes, getQuiz, createQuiz, updateQuiz, deleteQuiz, duplicateQuiz,
   startGame, beginGame, getGameState, closeGame, addPlayer, listPlayersBySession, submitAnswer,
-  nextQuestion, leaderboard, answerDistribution, archiveGame, listArchives, getArchive
+  nextQuestion, leaderboard, answerDistribution, archiveGame, listArchives, getArchive,
+  deleteArchive, deleteAllArchives
 } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +88,8 @@ app.post("/api/join", async (req,res)=>{try{const code=String(req.body?.code||""
 
 app.get("/api/results", requireAdminApi, async (_req,res)=>{try{res.json({ok:true,results:await listArchives()});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült betölteni az eredményarchívumot."});}});
 app.get("/api/results/:id", requireAdminApi, async (req,res)=>{try{res.json({ok:true,result:await getArchive(req.params.id)});}catch(e){res.status(404).json({ok:false,error:"Az eredmény nem található."});}});
+app.delete("/api/results", requireAdminApi, async (_req,res)=>{try{const count=await deleteAllArchives();res.json({ok:true,count:Number(count||0)});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült törölni az eredménytárat."});}});
+app.delete("/api/results/:id", requireAdminApi, async (req,res)=>{try{if(!isUuid(req.params.id))return res.status(400).json({ok:false,error:"Hibás eredményazonosító."});await deleteArchive(req.params.id);res.json({ok:true});}catch(e){console.error(e);res.status(500).json({ok:false,error:"Nem sikerült törölni az eredményt."});}});
 app.get("/api/results/:id/xlsx", requireAdminApi, async (req,res)=>{
   try {
     const a=await getArchive(req.params.id),players=Array.isArray(a.players)?a.players:[],questions=Array.isArray(a.questions)?a.questions:[],anonymousAnswers=Array.isArray(a.anonymousAnswers)?a.anonymousAnswers:[];
