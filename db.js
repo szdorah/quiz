@@ -41,6 +41,7 @@ function normalizeQuestions(questions = []) {
     else correctAnswer = options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null);
     delete config.assignments;
     delete config.polygon;
+    const isPoll = !!config.poll;
     return {
       questionType: type,
       prompt: String(q.questionText || q.prompt || "").trim(),
@@ -49,7 +50,7 @@ function normalizeQuestions(questions = []) {
       correctAnswer,
       settings: {
         timeLimitSeconds: Number(q.timeLimitSeconds || 30),
-        points: Number(q.points || 1000),
+        points: isPoll ? 0 : Number(q.points ?? 1000),
         explanation: String(q.explanation || config.explanation || "").trim(),
         ...config,
       },
@@ -64,11 +65,11 @@ export async function deleteQuiz(quizId) { return await rpc("api_delete_quiz", {
 export async function duplicateQuiz(quizId) { return await rpc("api_duplicate_quiz", { p_quiz_id: quizId }); }
 
 export async function createQuiz({ title, description = "", questions = [] }) {
-  const id = await rpc("api_create_quiz", { p_title: title, p_description: description, p_questions: normalizeQuestions(questions) });
+  const id = await rpc("api_create_quiz", { p_title: title, p_description: description, p_questions: normalizeQuestions(questions), p_settings: {} });
   return { id, title, description };
 }
 export async function updateQuiz(quizId, { title, description = "", questions = [] }) {
-  const id = await rpc("api_update_quiz", { p_quiz_id: quizId, p_title: title, p_description: description, p_questions: normalizeQuestions(questions) });
+  const id = await rpc("api_update_quiz", { p_quiz_id: quizId, p_title: title, p_description: description, p_questions: normalizeQuestions(questions), p_settings: {} });
   return { id, title, description };
 }
 
