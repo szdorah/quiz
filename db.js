@@ -87,6 +87,7 @@ export async function getGameState(gameId) {
   if (!row) return null;
   return { status: row.status, question: row.question_id ? normalizeQuestion(row) : null };
 }
+export async function closeGame(gameId) { return await rpc("api_close_game", { p_game_id: gameId }); }
 export async function submitAnswer({ playerId, questionId, answer }) {
   try {
     const row = first(await rpc("api_submit_answer_v7", { p_player_id: playerId, p_question_id: questionId, p_answer: answer }));
