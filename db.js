@@ -39,9 +39,18 @@ function normalizeQuestions(questions = []) {
     else if (type === "categorization") correctAnswer = Array.isArray(config.assignments) ? config.assignments.map(Number) : [];
     else if (type === "image_click") correctAnswer = { polygon: Array.isArray(config.polygon) ? config.polygon : [] };
     else correctAnswer = options.map((o, i) => o?.isCorrect ? i : null).filter(i => i !== null);
+
+    const isPoll = !!config.poll;
+    const timeLimitSeconds = Number(q.timeLimitSeconds ?? config.timeLimitSeconds ?? 30);
+    const points = isPoll ? 0 : Number(q.points ?? config.points ?? 1000);
+    const explanation = String(q.explanation ?? config.explanation ?? "").trim();
+
     delete config.assignments;
     delete config.polygon;
-    const isPoll = !!config.poll;
+    delete config.timeLimitSeconds;
+    delete config.points;
+    delete config.explanation;
+
     return {
       questionType: type,
       prompt: String(q.questionText || q.prompt || "").trim(),
@@ -49,10 +58,10 @@ function normalizeQuestions(questions = []) {
       options: options.map(o => ({ text: String(o?.text || ""), imageUrl: o?.imageUrl || null })),
       correctAnswer,
       settings: {
-        timeLimitSeconds: Number(q.timeLimitSeconds || 30),
-        points: isPoll ? 0 : Number(q.points ?? 1000),
-        explanation: String(q.explanation || config.explanation || "").trim(),
         ...config,
+        timeLimitSeconds,
+        points,
+        explanation,
       },
     };
   });
@@ -112,6 +121,8 @@ export async function answerDistribution(gameId) { return await rpc("api_answer_
 export async function archiveGame(gameId) { return await rpc("api_archive_game", { p_game_id: gameId }); }
 export async function listArchives() { return (await rpc("api_list_archives")) || []; }
 export async function getArchive(gameId) { return await rpc("api_get_archive", { p_game_id: gameId }); }
+export async function deleteArchive(gameId) { return await rpc("api_delete_archive", { p_game_id: gameId }); }
+export async function deleteAllArchives() { return await rpc("api_delete_all_archives"); }
 
 export async function addPlayer({ code, name, emoji }) {
   try {
