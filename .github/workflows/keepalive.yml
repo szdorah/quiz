@@ -1,0 +1,18 @@
+name: Keep free services awake
+
+on:
+  schedule:
+    - cron: '17 4 */3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Render app and touch Supabase
+        run: |
+          curl -L --fail --retry 3 --retry-delay 10 --max-time 180 \
+            https://szagri-quiz.onrender.com/health
