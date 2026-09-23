@@ -12,7 +12,17 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Wake Render app and touch Supabase
+      - name: Wake Render app
         run: |
           curl -L --fail --retry 3 --retry-delay 10 --max-time 180 \
             https://szagri-quiz.onrender.com/health
+
+      - name: Touch Supabase database through the app
+        run: |
+          status=$(curl -sS --retry 3 --retry-delay 10 --max-time 120 \
+            -o /tmp/keepalive-response.txt -w '%{http_code}' \
+            -X POST https://szagri-quiz.onrender.com/api/answers \
+            -H 'Content-Type: application/json' \
+            -d '{"playerId":"11111111-1111-4111-8111-111111111111","questionId":"22222222-2222-4222-8222-222222222222","answer":{"selectedIndexes":[0]}}')
+          cat /tmp/keepalive-response.txt || true
+          test "$status" != "000"
