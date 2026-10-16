@@ -2,7 +2,7 @@ name: Keep free services active
 
 on:
   schedule:
-    - cron: '17 4 * * *'
+    - cron: '17 4 * * 1,4'
   workflow_dispatch:
 
 permissions:
