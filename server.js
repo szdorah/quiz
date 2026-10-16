@@ -112,5 +112,26 @@ io.on("connection",socket=>{
   socket.on("session:join",async id=>{if(!isUuid(id))return;socket.join(`session:${id}`);try{const s=await getGameState(id);if(s?.status==="running"&&s.question)socket.emit("game:question",s.question);if(s?.status==="finished")socket.emit("game:finished",await leaderboard(id));}catch(e){console.error(e);}});
 });
 
-async function start(){try{await initDb();server.listen(PORT,"0.0.0.0",()=>console.log(`BME Tesztek - SzD running on port ${PORT}`));}catch(e){console.error("Database initialization failed",e);process.exit(1);}}
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function initDbWithRetry() {
+  let attempt = 0;
+  for (;;) {
+    try {
+      await initDb();
+      console.log("Database connection ready");
+      return;
+    } catch (e) {
+      attempt += 1;
+      const delay = Math.min(300000, 5000 * (2 ** Math.min(attempt - 1, 6)));
+      console.error(`Database initialization failed (attempt ${attempt}); retrying in ${Math.round(delay / 1000)}s`, e);
+      await sleep(delay);
+    }
+  }
+}
+
+function start() {
+  server.listen(PORT,"0.0.0.0",()=>console.log(`BME Tesztek - SzD running on port ${PORT}`));
+  initDbWithRetry().catch(e => console.error("Database retry loop stopped unexpectedly", e));
+}
 start();
